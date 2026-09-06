@@ -1,0 +1,90 @@
+{
+  "production_version": "V1.64_PRODUCTION_CLEAN_REPO",
+  "baseline": "V1.63_CLOUD_PRODUCTION_MVP",
+  "scope": "Repository hygiene only; no scoring, collector, dedupe, availability, or state behavior changes.",
+  "tests": {
+    "passed": 297,
+    "failed": 0
+  },
+  "scoring_freeze": {
+    "ok": true,
+    "manifest": "SCORING_FREEZE_V136.json",
+    "scoring_engine": "V1.36_FINAL_SCORING_CLEANUP",
+    "files_checked": [
+      "jobbot/evaluate.py",
+      "jobbot/rules.py",
+      "jobbot/normalize.py",
+      "config/rules.json",
+      "config/profile.json",
+      "jobbot/availability.py"
+    ],
+    "mismatches": []
+  },
+  "all_source_collectors_byte_identical_to_v163": true,
+  "source_collectors_checked": 25,
+  "core_behavior_files_byte_identical_to_v163": true,
+  "core_behavior_files": [
+    {
+      "file": "jobbot/evaluate.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "jobbot/rules.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "jobbot/normalize.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "jobbot/dedupe.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "jobbot/availability.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "jobbot/state.py",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "config/rules.json",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "config/profile.json",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "config/queries.json",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "config/ats_watchlist.json",
+      "byte_identical_to_v163": true
+    },
+    {
+      "file": "run_live_sample.py",
+      "byte_identical_to_v163": true
+    }
+  ],
+  "intentional_changes": [
+    "jobbot/production.py production version string only",
+    "PRODUCTION_VERSION.json metadata",
+    "README.md replaced with production-focused README",
+    "docs/CLOUD_PRODUCTION.md version wording",
+    "added .gitignore",
+    "moved legacy Madrid probe helpers under tests/legacy_tools and updated test imports",
+    "removed historical root validation/replay/calibration/probe/cache artifacts"
+  ],
+  "root_files": [
+    ".gitignore",
+    "PRODUCTION_VERSION.json",
+    "README.md",
+    "SCORING_FREEZE_V136.json",
+    "requirements-cloud.txt",
+    "requirements.txt",
+    "run_live_sample.py"
+  ]
+}

@@ -1,0 +1,76 @@
+[
+  {
+    "case": "A",
+    "title": "Scientific Project Manager – Horizon Europe – Physical Activity and Healthy Ageing",
+    "company": "Health Research Institute",
+    "location": "Madrid, Spain",
+    "full_detail": "Manage a Horizon Europe consortium in physical activity and healthy ageing. PhD preferred. Responsibilities include research project coordination, grant management, proposal development, international consortium work and scientific reporting.",
+    "expected": ["APPLY", "STRONG_APPLY"]
+  },
+  {
+    "case": "B",
+    "title": "EU Project Manager – Renewable Energy",
+    "company": "Energy Group",
+    "location": "Valencia, Spain",
+    "full_detail": "Manage EU funded renewable energy and solar infrastructure projects, including industrial engineering partners.",
+    "expected": ["SKIP"]
+  },
+  {
+    "case": "C",
+    "title": "Clinical Research Coordinator – Rehabilitation and Exercise",
+    "company": "Rehab Institute",
+    "location": "Barcelona, Spain",
+    "full_detail": "Coordinate human intervention studies in rehabilitation and exercise. Support randomized controlled trials, participant assessments, physiological testing, questionnaires, data quality and statistical analysis. MSc or PhD in health sciences preferred.",
+    "expected": ["APPLY", "STRONG_APPLY"]
+  },
+  {
+    "case": "D",
+    "title": "Senior CRA Oncology",
+    "company": "PharmaCo",
+    "location": "Spain",
+    "full_detail": "At least 5 years of CRA clinical monitoring and site monitoring experience in Phase I oncology trials required. Pharmaceutical industry experience essential.",
+    "expected": ["SKIP"]
+  },
+  {
+    "case": "E",
+    "title": "Postdoctoral Researcher – Exercise Neuroscience",
+    "company": "University",
+    "location": "Granada, Spain",
+    "full_detail": "Postdoctoral researcher in exercise neuroscience and physical activity. PhD required. The project includes randomized exercise interventions, cognitive assessments, physiological measures, statistical analysis in R and scientific publications.",
+    "expected": ["STRONG_APPLY"]
+  },
+  {
+    "case": "F",
+    "title": "Project Manager – SAP Migration",
+    "company": "Consulting Firm",
+    "location": "Madrid, Spain",
+    "full_detail": "Lead SAP migration, ERP implementation and enterprise IT transformation projects.",
+    "expected": ["SKIP"]
+  },
+  {
+    "case": "G",
+    "title": "Digital Health Researcher – Behaviour Change and Physical Activity",
+    "company": "Digital Health Lab",
+    "location": "Remote Europe",
+    "modality": "Remote",
+    "full_detail": "Research role in digital health, behaviour change and physical activity interventions. Conduct human studies, questionnaires and statistical analysis. Remote across the EU; candidates may work from Spain.",
+    "expected": ["APPLY", "STRONG_APPLY", "REVIEW"]
+  },
+  {
+    "case": "H",
+    "title": "Researcher – Molecular Oncology",
+    "company": "Cancer Institute",
+    "location": "Barcelona, Spain",
+    "full_detail": "Researcher in molecular oncology and drug discovery. Mandatory flow cytometry, cell culture and mass spectrometry experience.",
+    "expected": ["SKIP"]
+  },
+  {
+    "case": "I",
+    "title": "Scientific Project Officer – Neuroscience",
+    "company": "Research Foundation",
+    "location": "Remote Europe",
+    "modality": "Remote",
+    "full_detail": "Scientific project officer supporting international neuroscience and brain health projects, grant reporting, proposal development, consortium coordination and scientific communication. Remote in Europe with Spain eligible.",
+    "expected": ["APPLY", "REVIEW"]
+  }
+]

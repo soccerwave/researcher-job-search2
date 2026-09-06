@@ -1,0 +1,175 @@
+name: All Source Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: all-source-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: ${{ matrix.source }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        source:
+          - linkedin
+          - infojobs
+          - academicpositions
+          - ikerbasque
+          - atswatch
+          - santpau
+          - fbg
+          - biocat
+          - gencat
+          - csic
+          - isciii
+          - idibaps
+          - upc
+          - idibell
+          - hospitaldelmar
+          - euraxess
+          - bist
+          - institutions
+          - madrid
+          - fisabio
+          - fps
+          - iislafe
+    env:
+      PYTHONUNBUFFERED: "1"
+      AI_JOB_SEARCH_MADS_REPO: ${{ github.workspace }}/external/ai-job-search
+      AI_JOB_SEARCH_SPAIN_REPO: ${{ github.workspace }}/external/ai-job-search-spain
+      MADS_REPO: ${{ vars.MADS_REPO }}
+      INFOJOBS_REPO: ${{ vars.INFOJOBS_REPO }}
+      EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+      MADRID_RELAY_URL: ${{ vars.MADRID_RELAY_URL }}
+      MADRID_RELAY_TOKEN: ${{ secrets.MADRID_RELAY_TOKEN }}
+
+    steps:
+      - name: Checkout production bot
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Bun
+        if: ${{ matrix.source == 'linkedin' || matrix.source == 'infojobs' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+
+      - name: Clone selected external discovery transport
+        if: ${{ matrix.source == 'linkedin' || matrix.source == 'infojobs' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external
+          SOURCE="${{ matrix.source }}"
+
+          clone_repo() {
+            local repo="$1"
+            local dest="$2"
+            if [ -n "${EXTERNAL_REPO_TOKEN:-}" ]; then
+              git clone --depth 1 "https://x-access-token:${EXTERNAL_REPO_TOKEN}@github.com/${repo}.git" "$dest"
+            else
+              git clone --depth 1 "https://github.com/${repo}.git" "$dest"
+            fi
+          }
+
+          if [ "$SOURCE" = "linkedin" ]; then
+            MADS_REPO="${MADS_REPO:-MadsLorentzen/ai-job-search}"
+            clone_repo "$MADS_REPO" "$AI_JOB_SEARCH_MADS_REPO"
+            if [ -f "$AI_JOB_SEARCH_MADS_REPO/package.json" ]; then
+              (cd "$AI_JOB_SEARCH_MADS_REPO" && (bun install --frozen-lockfile || bun install))
+            fi
+          fi
+
+          if [ "$SOURCE" = "infojobs" ]; then
+            if [ -z "${INFOJOBS_REPO:-}" ]; then
+              echo "Repository variable INFOJOBS_REPO is required for the InfoJobs diagnostic." >&2
+              exit 2
+            fi
+            clone_repo "$INFOJOBS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"
+            if [ -f "$AI_JOB_SEARCH_SPAIN_REPO/package.json" ]; then
+              (cd "$AI_JOB_SEARCH_SPAIN_REPO" && (bun install --frozen-lockfile || bun install))
+            fi
+          fi
+
+
+      - name: Verify scoring freeze
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jobbot.production import assert_scoring_freeze
+          print(assert_scoring_freeze(Path('.').resolve()))
+          PY
+
+      - name: Benchmark source
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "runtime/diagnostic/${{ matrix.source }}"
+          SOURCE="${{ matrix.source }}"
+          START=$(date +%s)
+          echo "[diagnostic:start] source=$SOURCE utc=$(date -u +%FT%TZ)"
+
+          set +e
+          python run_live_sample.py \
+            --source "$SOURCE" \
+            --no-state \
+            --linkedin-repo "$AI_JOB_SEARCH_MADS_REPO" \
+            --infojobs-repo "$AI_JOB_SEARCH_SPAIN_REPO" \
+            --out "runtime/diagnostic/${SOURCE}" \
+            2>&1 | tee "runtime/${SOURCE}_diagnostic_stdout.log"
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          END=$(date +%s)
+          ELAPSED=$((END - START))
+          MINUTES=$(python - <<PY
+          print(round($ELAPSED / 60, 2))
+          PY
+          )
+          STATUS="SUCCESS"
+          if [ "$EXIT_CODE" -ne 0 ]; then STATUS="FAILED"; fi
+          echo "[diagnostic:done] source=$SOURCE status=$STATUS exit_code=$EXIT_CODE elapsed_seconds=$ELAPSED elapsed_minutes=$MINUTES"
+          {
+            echo "### Source diagnostic: $SOURCE"
+            echo ""
+            echo "- Status: $STATUS"
+            echo "- Exit code: $EXIT_CODE"
+            echo "- Elapsed: ${ELAPSED}s (${MINUTES} min)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '{"source":"%s","status":"%s","exit_code":%s,"elapsed_seconds":%s,"elapsed_minutes":%s}\n' \
+            "$SOURCE" "$STATUS" "$EXIT_CODE" "$ELAPSED" "$MINUTES" \
+            > "runtime/${SOURCE}_benchmark.json"
+          exit "$EXIT_CODE"
+
+      - name: Upload diagnostic artifact
+        if: ${{ always() && github.event.repository.private }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-diagnostic-${{ matrix.source }}-${{ github.run_id }}
+          path: |
+            runtime/${{ matrix.source }}_benchmark.json
+            runtime/${{ matrix.source }}_diagnostic_stdout.log
+            runtime/diagnostic/${{ matrix.source }}/run_summary.json
+            runtime/diagnostic/${{ matrix.source }}/source_summary.csv
+          retention-days: 14
+          if-no-files-found: warn

@@ -1,0 +1,22 @@
+{
+  "weights": {
+    "domain": 30,
+    "job_family": 25,
+    "experience": 20,
+    "methods": 10,
+    "qualification_seniority": 10,
+    "language_location": 5
+  },
+  "thresholds": {
+    "STRONG_APPLY": 90,
+    "APPLY": 80,
+    "REVIEW": 65,
+    "LOW_PRIORITY": 50
+  },
+  "location_policy": {
+    "spain_anywhere": true,
+    "remote_spain": true,
+    "remote_europe_if_work_from_spain_possible": true,
+    "onsite_outside_spain": false
+  }
+}

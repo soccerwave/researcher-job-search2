@@ -1,0 +1,15 @@
+{
+  "production_version": "V1.74_STATE_DETAIL_DEGRADATION_GUARD",
+  "baseline": "V1.73_MADRID_DEFERRED_RELAY_RECOVERY",
+  "issue": "A transient Full-JD failure could degrade location/deadline/status metadata and falsely classify previously known vacancies as MATERIALLY_CHANGED or REOPENED, polluting daily_actionable.",
+  "observed_run": "33281236950-1",
+  "observed_false_daily_actionable": 30,
+  "observed_pattern": "30 Madrid POEM_RELAY_HTTP_504 rows all carried DETAIL_UNRESOLVED; 23 were MATERIALLY_CHANGED and 7 REOPENED.",
+  "fix": "During resolved-to-unresolved detail degradation, compare only stable identity fields title/company, suppress false reopen caused by degraded status, and retain the prior trustworthy enriched metadata/detail snapshot.",
+  "scoring_changed": false,
+  "collectors_changed": false,
+  "madrid_relay_changed": false,
+  "tests": "327/327 PASS",
+  "scoring_freeze": "PASS; mismatches=[]",
+  "python_compile": "PASS"
+}

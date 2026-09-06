@@ -1,0 +1,10 @@
+{
+  "production_version": "V1.87_SPAIN_ONLY_SCOPE",
+  "scoring_engine": "V1.36_FINAL_SCORING_CLEANUP",
+  "baseline": "V1.78_IDIBAPS_REPLACEMENT",
+  "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
+  "scope": "Spain-only search-scope policy. LinkedIn Remote Europe discovery is disabled in production and the LinkedIn adapter now defaults to Spain-only. All other configured collectors remain unchanged because they already target Spain-specific boards/feeds. Frozen V1.36 scoring, availability, state semantics, reporting, Telegram, R2, Cloudflare scheduling and the 22-source architecture remain unchanged.",
+  "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
+  "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
+  "previous_production_version": "V1.86_EURAXESS_HEALTH_REPORTING_FIX"
+}

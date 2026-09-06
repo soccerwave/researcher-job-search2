@@ -1,0 +1,17 @@
+{
+  "profile_name": "exercise_health_research",
+  "work_base_country": "Spain",
+  "work_authorization": ["Spain"],
+  "languages": {"English": "Fluent", "Spanish": "B1"},
+  "education": ["PhD Exercise Physiology", "MSc Exercise Physiology", "BSc Biology"],
+  "direct_experience": [
+    "exercise physiology", "physical activity and health", "exercise neuroscience",
+    "exercise-based interventions", "randomized controlled trials", "human intervention studies",
+    "project coordination", "research project management", "Horizon Europe", "MSCA",
+    "grant writing", "scientific proposal development", "international research collaboration",
+    "physiological assessments", "physical fitness assessments", "cognitive assessments",
+    "psychological assessments", "lifestyle questionnaires", "data collection",
+    "database preparation", "data cleaning", "quality control", "statistical analysis",
+    "SPSS", "R", "scientific writing", "supervision", "mentoring", "university teaching"
+  ]
+}

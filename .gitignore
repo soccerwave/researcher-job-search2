@@ -1,0 +1,40 @@
+# Runtime / state / reports
+runtime/
+live_output/
+state/
+external/
+artifacts/
+*.log
+*.xlsx
+*.csv.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Cloudflare local metadata/caches
+.wrangler/
+**/.wrangler/
+cloudflare-worker/.dev.vars
+**/.dev.vars
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Archives / local exports
+*.zip

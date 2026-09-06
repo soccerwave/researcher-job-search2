@@ -1,0 +1,27 @@
+{
+  "production_version": "V1.76_CSIC_INSTITUTE_REPLACEMENT",
+  "baseline": "V1.75_CSIC_CLOUDFLARE_RELAY",
+  "reason": "The central CSIC Sede failed deterministically from GitHub Actions with ConnectTimeout and also timed out behind the fixed-purpose Cloudflare relay (504), while official institute-level CSIC job boards remained publicly accessible.",
+  "replacement_scope": {
+    "source_key": "csic",
+    "source_count_before": 22,
+    "source_count_after": 22,
+    "boards": [
+      "ICM-CSIC current job offers, Barcelona",
+      "IQAC-CSIC job offers, Barcelona",
+      "IMB-CNM-CSIC open employment offers, Cerdanyola del Valles/Barcelona"
+    ],
+    "whole_csic_coverage_claimed": false,
+    "fail_soft_per_board": true
+  },
+  "unchanged": [
+    "V1.36 frozen scoring files",
+    "availability",
+    "seen-state logic",
+    "dedupe",
+    "Madrid relay and collector",
+    "UPF collector",
+    "all other source collectors",
+    "R2/report semantics"
+  ]
+}

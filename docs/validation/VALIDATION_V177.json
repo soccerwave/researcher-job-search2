@@ -1,0 +1,31 @@
+{
+  "production_version": "V1.77_UPF_MELIS_REPLACEMENT",
+  "baseline": "V1.76_CSIC_INSTITUTE_REPLACEMENT",
+  "reason": "The production UPF Engineering PDI source repeatedly returned HTTP 403 from GitHub Actions and was a weak domain fit. The official UPF MELIS job board publishes biomedical, neuroscience-adjacent, physiology-related, technician, postdoctoral, and research positions and is a materially better source target for this job-search profile.",
+  "replacement_scope": {
+    "source_key": "upf",
+    "source_count_before": 22,
+    "source_count_after": 22,
+    "old_board": "UPF Engineering PDI",
+    "new_board": "UPF Faculty of Medicine and Life Sciences (MELIS) Job Offers",
+    "coverage_scope": "newest year section on the official MELIS job board",
+    "direct_github_access_requires_diagnostic_validation": true
+  },
+  "collector_guards": [
+    "publication date is not treated as application deadline",
+    "official vacancy/call documents are preferred for Full JD",
+    "admitted/excluded lists, award proposals, results and later process documents are never used as Full JD",
+    "later-stage process paperwork can mark a listing CLOSED",
+    "no relevance filtering is performed before the frozen scorer"
+  ],
+  "unchanged": [
+    "V1.36 frozen scoring files",
+    "availability logic",
+    "seen-state logic",
+    "dedupe",
+    "Madrid relay and collector",
+    "CSIC V1.76 institute collector",
+    "all other source collectors",
+    "R2/report semantics"
+  ]
+}

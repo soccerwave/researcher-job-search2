@@ -1,0 +1,25 @@
+name = "job-search-bot-control"
+main = "src/index.js"
+compatibility_date = "2026-08-29"
+
+[vars]
+SPAIN_GITHUB_OWNER = "REPLACE_ME"
+SPAIN_GITHUB_REPO = "REPLACE_ME"
+SPAIN_GITHUB_WORKFLOW = "production-job-search.yml"
+SPAIN_GITHUB_REF = "main"
+INTERNATIONAL_GITHUB_OWNER = "REPLACE_ME"
+INTERNATIONAL_GITHUB_REPO = "international-academic-job-search"
+INTERNATIONAL_GITHUB_WORKFLOW = "production.yml"
+INTERNATIONAL_GITHUB_REF = "main"
+
+[triggers]
+# Spain remains at 03:17 UTC. The Worker selects 06:00 Europe/Madrid for International.
+crons = ["17 3 * * *", "0 4 * * *", "0 5 * * *"]
+
+[[r2_buckets]]
+binding = "REPORTS_SPAIN"
+bucket_name = "job-search-bot-data"
+
+[[r2_buckets]]
+binding = "REPORTS_INTERNATIONAL"
+bucket_name = "international-academic-job-search"

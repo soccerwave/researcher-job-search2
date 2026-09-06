@@ -1,0 +1,339 @@
+name: Deploy Telegram Control Plane
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare-worker/**"
+      - ".github/workflows/deploy-telegram-control-plane.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-telegram-control-plane
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      GH_CONTROL_TOKEN: ${{ secrets.GH_CONTROL_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+      R2_BUCKET_SPAIN: ${{ vars.R2_BUCKET }}
+      R2_BUCKET_INTERNATIONAL: ${{ vars.INTERNATIONAL_R2_BUCKET || 'international-academic-job-search' }}
+      CONTROL_SPAIN_OWNER: ${{ github.repository_owner }}
+      CONTROL_SPAIN_REPO: ${{ github.event.repository.name }}
+      CONTROL_SPAIN_WORKFLOW: production-job-search.yml
+      CONTROL_SPAIN_REF: ${{ github.event.repository.default_branch }}
+      CONTROL_INTERNATIONAL_OWNER: ${{ github.repository_owner }}
+      CONTROL_INTERNATIONAL_REPO: ${{ vars.INTERNATIONAL_GITHUB_REPO || 'international-academic-job-search' }}
+      CONTROL_INTERNATIONAL_WORKFLOW: ${{ vars.INTERNATIONAL_GITHUB_WORKFLOW || 'production.yml' }}
+      CONTROL_INTERNATIONAL_REF: main
+
+    steps:
+      - name: Checkout production bot
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify scheduler and dispatch behavior before deployment
+        run: node --test tests/test_worker_schedule.mjs
+
+      - name: Validate deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID GH_CONTROL_TOKEN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_IDS R2_BUCKET_SPAIN R2_BUCKET_INTERNATIONAL)
+          for key in "${required[@]}"; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required secret/environment value: $key" >&2
+              exit 2
+            fi
+          done
+          case "${TELEGRAM_CHAT_IDS}" in
+            *[!0-9,\;\ -]*) echo "TELEGRAM_CHAT_IDS must contain only numeric private chat IDs separated by comma/semicolon." >&2; exit 2;;
+          esac
+
+      - name: Verify GitHub token can read both production workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request
+
+          token = os.environ['GH_CONTROL_TOKEN']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'job-search-control-center-deploy',
+          }
+          projects = [
+              ('Spain', os.environ['CONTROL_SPAIN_OWNER'], os.environ['CONTROL_SPAIN_REPO'], os.environ['CONTROL_SPAIN_WORKFLOW']),
+              ('International', os.environ['CONTROL_INTERNATIONAL_OWNER'], os.environ['CONTROL_INTERNATIONAL_REPO'], os.environ['CONTROL_INTERNATIONAL_WORKFLOW']),
+          ]
+          for label, owner, repo, workflow in projects:
+              wf = urllib.parse.quote(workflow, safe='')
+              url = f'https://api.github.com/repos/{owner}/{repo}/actions/workflows/{wf}'
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      data = json.load(response)
+              except Exception as exc:
+                  raise SystemExit(f'GH_CONTROL_TOKEN cannot access {label} workflow {owner}/{repo}:{workflow}: {exc}')
+              print(json.dumps({'project': label, 'repo': f'{owner}/{repo}', 'workflow': data.get('path') or workflow}))
+          PY
+
+      - name: Prepare Worker configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          p = Path('cloudflare-worker/wrangler.toml')
+          text = p.read_text(encoding='utf-8')
+          replacements = {
+              'SPAIN_GITHUB_OWNER = "REPLACE_ME"': f'SPAIN_GITHUB_OWNER = "{os.environ["CONTROL_SPAIN_OWNER"]}"',
+              'SPAIN_GITHUB_REPO = "REPLACE_ME"': f'SPAIN_GITHUB_REPO = "{os.environ["CONTROL_SPAIN_REPO"]}"',
+              'SPAIN_GITHUB_WORKFLOW = "production-job-search.yml"': f'SPAIN_GITHUB_WORKFLOW = "{os.environ["CONTROL_SPAIN_WORKFLOW"]}"',
+              'SPAIN_GITHUB_REF = "main"': f'SPAIN_GITHUB_REF = "{os.environ["CONTROL_SPAIN_REF"]}"',
+              'INTERNATIONAL_GITHUB_OWNER = "REPLACE_ME"': f'INTERNATIONAL_GITHUB_OWNER = "{os.environ["CONTROL_INTERNATIONAL_OWNER"]}"',
+              'INTERNATIONAL_GITHUB_REPO = "international-academic-job-search"': f'INTERNATIONAL_GITHUB_REPO = "{os.environ["CONTROL_INTERNATIONAL_REPO"]}"',
+              'INTERNATIONAL_GITHUB_WORKFLOW = "production.yml"': f'INTERNATIONAL_GITHUB_WORKFLOW = "{os.environ["CONTROL_INTERNATIONAL_WORKFLOW"]}"',
+              'INTERNATIONAL_GITHUB_REF = "main"': f'INTERNATIONAL_GITHUB_REF = "{os.environ["CONTROL_INTERNATIONAL_REF"]}"',
+              'bucket_name = "job-search-bot-data"': f'bucket_name = "{os.environ["R2_BUCKET_SPAIN"]}"',
+              'bucket_name = "international-academic-job-search"': f'bucket_name = "{os.environ["R2_BUCKET_INTERNATIONAL"]}"',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Expected Worker config template entry missing: {old}')
+              text = text.replace(old, new, 1)
+          p.write_text(text, encoding='utf-8')
+          print(text)
+          PY
+
+      - name: Install Wrangler
+        working-directory: cloudflare-worker
+        run: npm install
+
+      - name: Validate Worker bundle before deployment
+        working-directory: cloudflare-worker
+        run: npx wrangler deploy --dry-run --outdir ../worker-dry-run
+
+      - name: Deploy Worker
+        id: deploy
+        working-directory: cloudflare-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy 2>&1 | tee deploy.log
+
+          WORKER_NAME=$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('wrangler.toml').read_text(encoding='utf-8')
+          m = re.search(r'^name\s*=\s*"([^"]+)"', text, re.M)
+          if not m:
+              raise SystemExit('Worker name missing from wrangler.toml')
+          print(m.group(1))
+          PY
+          )
+
+          SUBDOMAIN_JSON=$(curl -fsS --max-time 20 \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")
+          ACCOUNT_SUBDOMAIN=$(printf '%s' "$SUBDOMAIN_JSON" | python -c 'import json,sys; d=json.load(sys.stdin); print((d.get("result") or {}).get("subdomain") or "")')
+          if [ -z "$ACCOUNT_SUBDOMAIN" ]; then
+            echo "Could not determine the Cloudflare workers.dev account subdomain." >&2
+            exit 3
+          fi
+
+          curl -fsS --max-time 20 -X POST \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"enabled":true,"previews_enabled":false}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/subdomain" >/dev/null
+
+          WORKER_URL="https://${WORKER_NAME}.${ACCOUNT_SUBDOMAIN}.workers.dev"
+          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          echo "Worker URL: $WORKER_URL"
+
+      - name: Configure Worker secrets
+        working-directory: cloudflare-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEBHOOK_SECRET=$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(36))
+          PY
+          )
+          echo "::add-mask::$WEBHOOK_SECRET"
+          echo "TELEGRAM_WEBHOOK_SECRET=$WEBHOOK_SECRET" >> "$GITHUB_ENV"
+
+          printf '%s' "$GH_CONTROL_TOKEN" | npx wrangler secret put GITHUB_TOKEN >/dev/null
+          printf '%s' "$TELEGRAM_BOT_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN >/dev/null
+          printf '%s' "$WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET >/dev/null
+          printf '%s' "$TELEGRAM_CHAT_IDS" | npx wrangler secret put TELEGRAM_ALLOWED_USER_IDS >/dev/null
+
+      - name: Wait for Worker route
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            if curl -fsS --max-time 15 "$WORKER_URL/health" >/tmp/worker-health.json; then
+              cat /tmp/worker-health.json
+              echo
+              exit 0
+            fi
+            echo "Worker route not ready yet (attempt $attempt/12); retrying..."
+            sleep 3
+          done
+          echo "Worker route did not become healthy: $WORKER_URL/health" >&2
+          exit 4
+
+      - name: Configure Telegram webhook and clean command menu
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+
+          token = os.environ['TELEGRAM_BOT_TOKEN']
+          worker = os.environ['WORKER_URL'].rstrip('/')
+          secret = os.environ['TELEGRAM_WEBHOOK_SECRET']
+          base = f'https://api.telegram.org/bot{token}'
+
+          def post(method, payload):
+              data = json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  f'{base}/{method}', data=data,
+                  headers={'Content-Type': 'application/json'}, method='POST'
+              )
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  result = json.load(r)
+              if not result.get('ok'):
+                  raise SystemExit(f'Telegram {method} failed: {result}')
+              return result
+
+          post('setWebhook', {
+              'url': f'{worker}/telegram',
+              'secret_token': secret,
+              'allowed_updates': ['message', 'callback_query'],
+              'drop_pending_updates': True,
+          })
+          commands = [
+              {'command': 'menu', 'description': 'Choose Spain or International'},
+              {'command': 'spain', 'description': 'Spain job-search controls'},
+              {'command': 'international', 'description': 'International academic-search controls'},
+              {'command': 'help', 'description': 'Show the job-search control center'},
+          ]
+          post('setMyCommands', {'commands': commands})
+          registered = post('getMyCommands', {})['result']
+          if registered != commands:
+              raise SystemExit(f'Telegram command menu mismatch: {registered!r}')
+          info = post('getWebhookInfo', {})['result']
+          expected = f'{worker}/telegram'
+          if info.get('url') != expected:
+              raise SystemExit(f'Webhook mismatch: {info.get("url")} != {expected}')
+          print(f'Webhook and clean command menu configured: {expected}')
+          PY
+
+      - name: Verify both GitHub projects, both R2 reports and Telegram integration
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 20 "$WORKER_URL/health" >/tmp/worker-health.json
+          python - <<'PY_HEALTH'
+          import json
+          data = json.load(open('/tmp/worker-health.json'))
+          assert data.get('version') == 'INTERNATIONAL_ALL_MADRID_CRON_V1', data
+          assert data.get('international_max_jobs') == 'all', data
+          assert data.get('international_schedule') == '06:00 Europe/Madrid', data
+          print(json.dumps(data))
+          PY_HEALTH
+          echo
+          for attempt in $(seq 1 5); do
+            if curl -fsS --max-time 30 \
+              -H "Authorization: Bearer $TELEGRAM_WEBHOOK_SECRET" \
+              "$WORKER_URL/ready"; then
+              echo
+              exit 0
+            fi
+            echo "Readiness check not ready yet (attempt $attempt/5); retrying..."
+            sleep 3
+          done
+          echo "Worker readiness verification failed." >&2
+          exit 5
+
+      - name: Send end-to-end main menu through Worker
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIRST_ID=$(python - <<'PY'
+          import os, re
+          ids = [x.strip() for x in re.split(r'[;,]', os.environ['TELEGRAM_CHAT_IDS']) if x.strip()]
+          if not ids:
+              raise SystemExit(2)
+          print(ids[0])
+          PY
+          )
+          BODY=$(python - <<PY
+          import json
+          uid=int("$FIRST_ID")
+          print(json.dumps({
+            "update_id": 1800000000,
+            "message": {
+              "message_id": 1,
+              "from": {"id": uid, "is_bot": False, "first_name": "ControlPlane"},
+              "chat": {"id": uid, "type": "private", "first_name": "ControlPlane"},
+              "date": 0,
+              "text": "/menu"
+            }
+          }))
+          PY
+          )
+          curl -fsS --max-time 45 -X POST "$WORKER_URL/telegram" \
+            -H "Content-Type: application/json" \
+            -H "X-Telegram-Bot-Api-Secret-Token: $TELEGRAM_WEBHOOK_SECRET" \
+            --data "$BODY" >/dev/null
+          echo "End-to-end /menu request sent through the deployed Worker."
+
+      - name: Deployment summary
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.worker_url }}
+        shell: bash
+        run: |
+          {
+            echo "### Shared Telegram job-search control center deployed"
+            echo ""
+            echo "- Worker: $WORKER_URL"
+            echo "- Telegram webhook: configured"
+            echo "- Command menu: /menu /spain /international /help"
+            echo "- Spain GitHub + R2: verified"
+            echo "- International GitHub + R2: verified"
+            echo "- Telegram API: verified"
+            echo "- Worker health and authenticated readiness: verified"
+            echo "- Existing Spain Cloudflare cron preserved"
+            echo "- International Cloudflare cron: 06:00 Europe/Madrid; max_jobs_per_source=all"
+          } >> "$GITHUB_STEP_SUMMARY"

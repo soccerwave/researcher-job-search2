@@ -1,0 +1,184 @@
+name: Production Job Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: Trigger origin (cloudflare-cron, telegram, github-manual)
+        required: false
+        default: github-manual
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-job-search
+  cancel-in-progress: false
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUNBUFFERED: "1"
+      JOBBOT_STATE_FILE: ${{ github.workspace }}/runtime/state/seen_jobs.json
+      AI_JOB_SEARCH_MADS_REPO: ${{ github.workspace }}/external/ai-job-search
+      AI_JOB_SEARCH_SPAIN_REPO: ${{ github.workspace }}/external/ai-job-search-spain
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+      TELEGRAM_SEND_REPORT_ALWAYS: ${{ vars.TELEGRAM_SEND_REPORT_ALWAYS }}
+      MADS_REPO: ${{ vars.MADS_REPO }}
+      INFOJOBS_REPO: ${{ vars.INFOJOBS_REPO }}
+      EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+      MADRID_RELAY_URL: ${{ vars.MADRID_RELAY_URL }}
+      MADRID_RELAY_TOKEN: ${{ secrets.MADRID_RELAY_TOKEN }}
+
+    steps:
+      - name: Checkout production bot
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+
+      - name: Verify Telegram configuration
+        run: |
+          python scripts/telegram_notify.py --check --allow-transient-unavailable
+
+      - name: Clone external discovery transports
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external
+          MADS_REPO="${MADS_REPO:-MadsLorentzen/ai-job-search}"
+          if [ -z "${INFOJOBS_REPO:-}" ]; then
+            echo "Repository variable INFOJOBS_REPO is required (owner/repo for the Spain fork)." >&2
+            exit 2
+          fi
+
+          clone_repo() {
+            local repo="$1"
+            local dest="$2"
+            if [ -n "${EXTERNAL_REPO_TOKEN:-}" ]; then
+              git clone --depth 1 "https://x-access-token:${EXTERNAL_REPO_TOKEN}@github.com/${repo}.git" "$dest"
+            else
+              git clone --depth 1 "https://github.com/${repo}.git" "$dest"
+            fi
+          }
+
+          clone_repo "$MADS_REPO" "$AI_JOB_SEARCH_MADS_REPO"
+          clone_repo "$INFOJOBS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"
+
+          for repo in "$AI_JOB_SEARCH_MADS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"; do
+            if [ -f "$repo/package.json" ]; then
+              (cd "$repo" && (bun install --frozen-lockfile || bun install))
+            fi
+          done
+
+      - name: Restore validated production state from R2
+        run: |
+          mkdir -p runtime/state runtime/live_output
+          python scripts/r2_store.py download-state --dest "$JOBBOT_STATE_FILE"
+
+      - name: Verify Madrid relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${MADRID_RELAY_URL:-}" ] || [ -z "${MADRID_RELAY_TOKEN:-}" ]; then
+            echo "MADRID_RELAY_URL variable and MADRID_RELAY_TOKEN secret are required for cloud production." >&2
+            exit 2
+          fi
+          curl -fsS --max-time 10 "${MADRID_RELAY_URL%/}/health" >/dev/null
+
+      - name: Verify scoring freeze
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jobbot.production import assert_scoring_freeze
+          print(assert_scoring_freeze(Path('.').resolve()))
+          PY
+
+      - name: Run all production sources
+        run: |
+          python run_live_sample.py \
+            --source all \
+            --state-file "$JOBBOT_STATE_FILE" \
+            --linkedin-repo "$AI_JOB_SEARCH_MADS_REPO" \
+            --infojobs-repo "$AI_JOB_SEARCH_SPAIN_REPO" \
+            --out runtime/live_output \
+            | tee runtime/run_stdout.json
+
+      - name: Build Telegram Excel report
+        run: |
+          python scripts/build_cloud_report.py \
+            --out-dir runtime/live_output \
+            --xlsx runtime/live_output/job_search_report.xlsx
+
+      - name: Publish state and run outputs to R2
+        run: |
+          python scripts/r2_store.py publish-run \
+            --state-file "$JOBBOT_STATE_FILE" \
+            --out-dir runtime/live_output \
+            --report runtime/live_output/job_search_report.xlsx \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Upload diagnostic artifact
+        if: ${{ github.event.repository.private }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-search-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            runtime/live_output/run_summary.json
+            runtime/live_output/job_search_report.xlsx
+            runtime/live_output/daily_actionable.csv
+            runtime/live_output/new_actionable.csv
+            runtime/live_output/changed_or_reopened.csv
+            runtime/live_output/needs_detail_review.csv
+            runtime/live_output/source_summary.csv
+            runtime/live_output/cloud_publish_manifest.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Notify Telegram on success
+        continue-on-error: true
+        run: |
+          python scripts/telegram_notify.py \
+            --summary runtime/live_output/run_summary.json \
+            --report runtime/live_output/job_search_report.xlsx
+
+      - name: Notify Telegram on failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_IDS:-}" ]; then
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          IFS=',' read -ra CHATS <<< "$TELEGRAM_CHAT_IDS"
+          for CHAT in "${CHATS[@]}"; do
+            CHAT="$(echo "$CHAT" | xargs)"
+            [ -z "$CHAT" ] && continue
+            MSG=$(printf '❌ Job search failed\nTrigger: %s\nRun: %s' "${{ inputs.trigger_source }}" "$RUN_URL")
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${CHAT}" \
+              --data-urlencode "text=${MSG}" >/dev/null || true
+          done

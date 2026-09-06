@@ -1,0 +1,13 @@
+{
+  "production_version": "V1.69_MADRID_BOUNDED_DETAIL_CONCURRENCY",
+  "baseline": "V1.68_ALL_SOURCE_DIAGNOSTIC_MATRIX",
+  "tests": {"passed": 304, "failed": 0},
+  "scoring_freeze": "PASS",
+  "change_scope": [
+    "Madrid I+D+i detail enrichment only",
+    "production CLI adds --madrid-detail-workers with default 6",
+    "bounded parallelism preserves 10-page/100-job coverage and existing Full-JD resolution rules",
+    "non-Madrid collectors unchanged",
+    "scoring/dedupe/availability/state/R2/Telegram logic unchanged"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "production_version": "V1.73_MADRID_DEFERRED_RELAY_RECOVERY",
+  "baseline": "V1.72_MADRID_RELAY_BACKPRESSURE",
+  "empirical_basis": {
+    "v172_madrid_jobs": 100,
+    "v172_detail_success": 73,
+    "v172_detail_failed": 27,
+    "v172_failure_status": "POEM_RELAY_HTTP_504",
+    "v172_collector_elapsed_seconds": 131.5,
+    "v172_diagnostic_elapsed_seconds": 136
+  },
+  "diagnosis": "V1.72 correctly removed GitHub-side generic urllib3 retries, but the Worker still made two immediate 6-second upstream attempts inside each relay request. The real V1.72 run showed 27 transient relay 504s, so immediate back-to-back retrying did not provide sufficient recovery separation and occupied relay detail worker slots during both attempts.",
+  "change": {
+    "worker_upstream_attempts_per_invocation": 1,
+    "worker_upstream_timeout_seconds": 6,
+    "relay_detail_worker_cap": 3,
+    "python_recovery_pass": "one delayed pass after the primary detail batch, only for relay transport failures, HTTP 429, or HTTP 5xx",
+    "max_relay_attempts_per_affected_offer": 2,
+    "timeout_increased": false,
+    "concurrency_increased": false
+  },
+  "validation": {
+    "pytest": "322 passed",
+    "scoring_freeze": "PASS",
+    "worker_syntax": "PASS",
+    "python_compile": "PASS",
+    "runtime_improvement_claimed": false,
+    "requires_real_github_madrid_diagnostic": true
+  },
+  "scoring_engine": "V1.36_FINAL_SCORING_CLEANUP"
+}

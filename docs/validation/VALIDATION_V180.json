@@ -1,0 +1,33 @@
+{
+  "production_version": "V1.80_TELEGRAM_CONTROL_PLANE_DEPLOYMENT",
+  "baseline": "V1.79_TELEGRAM_PREFLIGHT_DIAGNOSTIC",
+  "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
+  "reason": "Consolidate the remaining Telegram/Cloudflare/GitHub control-plane deployment into one GitHub Action rather than validating commands in separate manual steps.",
+  "scope": {
+    "one_click_control_plane_deploy": true,
+    "authenticated_readiness_endpoint": true,
+    "telegram_webhook_auto_configuration": true,
+    "telegram_command_menu_auto_configuration": true,
+    "end_to_end_status_probe": true,
+    "scoring_changed": false,
+    "source_collectors_changed": false,
+    "state_logic_changed": false,
+    "r2_production_semantics_changed": false
+  },
+  "validation": {
+    "pytest": "357 passed",
+    "python_compile": "PASS",
+    "worker_javascript_syntax": "PASS",
+    "workflow_yaml": "PASS (5/5)",
+    "scoring_freeze": "PASS",
+    "scoring_mismatches": [],
+    "frozen_file_sha256": {
+      "jobbot/evaluate.py": "5841e947211aef8da8873b14e9eebf4313be43cb6b2d8a0565504f50fbcdf3eb",
+      "jobbot/rules.py": "4af6f0bc206ea7815c0cdd6fa1595fe813abb2199fa4bdd7f48838cfae7536fe",
+      "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+      "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+      "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+      "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+    }
+  }
+}

@@ -1,0 +1,44 @@
+name: Telegram Control Center Tests
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare-worker/**'
+      - 'tests/test_control_plane_router.py'
+      - 'tests/test_worker_schedule.mjs'
+      - '.github/workflows/deploy-telegram-control-plane.yml'
+      - '.github/workflows/test-telegram-control-center.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker/**'
+      - 'tests/test_control_plane_router.py'
+      - 'tests/test_worker_schedule.mjs'
+      - '.github/workflows/deploy-telegram-control-plane.yml'
+      - '.github/workflows/test-telegram-control-center.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run router contract tests
+        run: python -m unittest -v tests.test_control_plane_router
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test real Worker scheduling and dispatch payloads
+        run: node --test tests/test_worker_schedule.mjs
+      - name: Install Wrangler
+        working-directory: cloudflare-worker
+        run: npm install
+      - name: Compile Worker with Wrangler
+        working-directory: cloudflare-worker
+        run: npx wrangler deploy --dry-run --outdir ../worker-dry-run

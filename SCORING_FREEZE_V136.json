@@ -1,0 +1,22 @@
+{
+  "scoring_engine": "V1.36_FINAL_SCORING_CLEANUP",
+  "package": "V1.36_FINAL_SCORING_FREEZE_CANDIDATE",
+  "status": "FINAL_FREEZE_CANDIDATE_PENDING_ONE_IISLAFE_LIVE_REPLAY",
+  "note": "Full regression suite and historical replay distributions pass. One live IIS La Fe replay is requested only to confirm the two narrow final cleanup classes on the real holdout documents; no further calibration is planned unless that replay exposes a repeated general failure.",
+  "tests_passed": 170,
+  "replays": {
+    "euraxess60": "1 APPLY / 2 REVIEW / 7 LOW / 52 SKIP",
+    "bist9": "9 SKIP",
+    "institutions44": "3 REVIEW / 4 LOW / 37 SKIP",
+    "combined_v116_38": "1 APPLY / 1 REVIEW / 5 LOW / 31 SKIP",
+    "v117_current_39": "1 APPLY / 1 REVIEW / 5 LOW / 32 SKIP"
+  },
+  "sha256": {
+    "jobbot/evaluate.py": "5841e947211aef8da8873b14e9eebf4313be43cb6b2d8a0565504f50fbcdf3eb",
+    "jobbot/rules.py": "4af6f0bc206ea7815c0cdd6fa1595fe813abb2199fa4bdd7f48838cfae7536fe",
+    "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+    "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+    "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+    "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+  }
+}

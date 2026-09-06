@@ -1,0 +1,11 @@
+{
+  "production_version": "V1.70_MADRID_CLOUDFLARE_RELAY",
+  "scope": "Madrid Cloudflare relay transport",
+  "scoring_frozen": true,
+  "notes": [
+    "Madrid listing collection unchanged.",
+    "Madrid POEM payload and Full-JD rendering/scoring integrity unchanged.",
+    "Cloud workflow now routes POEM offer reads through authenticated fixed-purpose Worker.",
+    "Local collector retains direct API behavior when relay environment is absent."
+  ]
+}

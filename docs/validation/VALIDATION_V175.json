@@ -1,0 +1,31 @@
+{
+  "production_version": "V1.75_CSIC_CLOUDFLARE_RELAY",
+  "baseline": "V1.74_STATE_DETAIL_DEGRADATION_GUARD",
+  "scope": "CSIC Sede transport repair only",
+  "validation": {
+    "pytest": "330 passed",
+    "scoring_freeze": {
+      "ok": true,
+      "mismatches": []
+    },
+    "frozen_scoring_files_byte_identical_to_v174": true,
+    "python_compile": "PASS",
+    "worker_node_check": "PASS",
+    "workflow_yaml_parse": "PASS"
+  },
+  "design": {
+    "relay": "fixed-purpose authenticated Cloudflare Worker",
+    "upstream_host": "sede.csic.gob.es",
+    "routes": [
+      "GET /health",
+      "GET /board?page=<0..50>",
+      "GET /convocatoria/<numeric-id>"
+    ],
+    "generic_proxy": false,
+    "worker_upstream_timeout_seconds": 12,
+    "github_side_retries_when_relay_active": 0,
+    "canonical_job_urls_unchanged": true,
+    "direct_local_mode_unchanged_when_relay_absent": true
+  },
+  "live_validation": "PENDING_CLOUDFLARE_DEPLOY_AND_CSIC_SOURCE_DIAGNOSTIC"
+}

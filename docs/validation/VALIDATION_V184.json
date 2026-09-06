@@ -1,0 +1,37 @@
+{
+  "production_version": "V1.84_TELEGRAM_TRANSIENT_NETWORK_RESILIENCE",
+  "previous_production_version": "V1.83_FULL_CANONICAL_R2_ARCHIVE",
+  "change_scope": "Telegram transient-network resilience only",
+  "observed_failure_addressed": "GitHub runner -> api.telegram.org TLS/network connection reset during production preflight getChat",
+  "behavior": {
+    "telegram_api_retry_attempts": 4,
+    "retryable_failures": [
+      "requests.ConnectionError",
+      "requests.Timeout",
+      "HTTP 429",
+      "HTTP 5xx",
+      "invalid/transient API response"
+    ],
+    "production_preflight": "permanent Telegram configuration/API errors still fail; exhausted transient Telegram/network failures warn and allow job search to continue",
+    "telegram_diagnostic": "remains strict",
+    "success_delivery": "bounded retry and best-effort workflow step"
+  },
+  "frozen_behavior_unchanged": {
+    "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
+    "scoring_engine": "V1.36_FINAL_SCORING_CLEANUP",
+    "source_count": 22,
+    "state_semantics": "unchanged",
+    "madrid": "unchanged",
+    "reporting": "V1.82 behavior retained",
+    "full_canonical_r2_archive": "V1.83 behavior retained",
+    "schedule": "unchanged"
+  },
+  "validation": {
+    "pytest": "372 passed",
+    "python_compile": "PASS",
+    "workflow_yaml": "5/5 PASS",
+    "scoring_freeze": "PASS",
+    "scoring_mismatches": [],
+    "six_frozen_scoring_files_byte_identical_to_v183": true
+  }
+}
