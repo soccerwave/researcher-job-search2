@@ -83,3 +83,29 @@ def test_v158_source_registered_and_scoring_freeze_unchanged():
     assert _collector_map()["santpau"] is sant_pau_research.collect
     root = Path(__file__).resolve().parents[1]
     assert verify_scoring_freeze(root)["ok"] is True
+
+
+def test_v190_uses_bounded_default_timeout_and_one_retry(monkeypatch):
+    captured = {}
+
+    class FailSession:
+        def get(self, url, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            raise RuntimeError("synthetic timeout")
+        def close(self):
+            pass
+
+    def fake_make_retry_session(total_retries=3, backoff_factor=1.0):
+        captured["retries"] = total_retries
+        return FailSession()
+
+    monkeypatch.setattr(sant_pau_research, "make_retry_session", fake_make_retry_session)
+    diag = {}
+    rows = sant_pau_research.collect(diagnostics=diag, max_pages=1, enrich_detail=False)
+
+    assert rows == []
+    assert captured["retries"] == 1
+    assert captured["timeout"] == (10, 20)
+    assert diag["transport_retries"] == 1
+    assert diag["board_timeout_seconds"] == 20
+    assert diag["coverage_complete"] is False
