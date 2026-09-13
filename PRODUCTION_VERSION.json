@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.89_MADRID_HISTORICAL_DETAIL_FALLBACK",
+  "production_version": "V1.90_SANTPAU_BOUNDED_TRANSPORT",
   "scoring_engine": "V1.37_TRANSFERABLE_ROLE_CALIBRATION",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Madrid collector resilience only. When today's Madrid detail fetch fails, an exact same-offer historical Full JD from the latest R2 canonical snapshot may be reused for scoring if it is at most 2 days old and identity guards still match. Fresh detail always wins; current listing metadata remains authoritative; fallback is explicitly marked with detail_source=historical_fallback and detail_age_days. Scoring V1.37, thresholds, weights, Spain-only geography, source count, seen-state semantics, reporting, Telegram and all non-Madrid collectors are unchanged.",
+  "scope": "Sant Pau transport resilience only. The Sant Pau collector now uses a 20-second default board timeout and one retry instead of the shared three-retry behavior, preventing a slow board from blocking production for several minutes. Parser logic, pagination, Full-JD requirements, scoring V1.37, thresholds, weights, Spain-only geography, source count, Madrid V1.89 fallback, seen-state semantics, reporting, Telegram and all other collectors are unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.88_EVALUATOR_CALIBRATION"
+  "previous_production_version": "V1.89_MADRID_HISTORICAL_DETAIL_FALLBACK"
 }
