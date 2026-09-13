@@ -111,7 +111,7 @@ def location_points(job: dict[str, Any], text: str) -> tuple[int, list[str], lis
     return 0, good, partial
 
 
-def _specialist_method_gaps(text: str) -> list[str]:
+def _specialist_method_gaps(text: str, family: str = "unclear") -> list[str]:
     """Detect specialist method stacks that are not evidenced in the CV.
 
     A single lab keyword is not enough. We require a cluster of role-defining methods,
@@ -197,6 +197,10 @@ def _specialist_method_gaps(text: str) -> list[str]:
         "thermoelectric_materials_specialist": [
             r"thermoelectric", r"device fabrication", r"materials? (?:science|physics)|solid[- ]state",
         ],
+        "immunodetection_wet_lab": [
+            r"western blot", r"\belisa\b", r"immunohistochem", r"immunofluorescen",
+            r"flow cytometr", r"immunoprecipitation",
+        ],
     }
     gaps = []
     thresholds = {
@@ -209,10 +213,29 @@ def _specialist_method_gaps(text: str) -> list[str]:
         "computational_neuroimaging_specialist": 3,
         "thermoelectric_materials_specialist": 2,
     }
+    requirement_marker = re.compile(
+        r"(?:required|essential|mandatory|must have|proficiency in|hands[- ]on|"
+        r"demonstrated (?:experience|expertise)|proven (?:experience|expertise)|"
+        r"experience in|responsible for (?:developing|implementing)|candidate will (?:develop|implement))",
+        re.I,
+    )
+
+    def _candidate_level_requirement(patterns: list[str]) -> bool:
+        for pattern in patterns:
+            for match in re.finditer(pattern, t, re.I):
+                window = t[max(0, match.start() - 160): min(len(t), match.end() + 160)]
+                if requirement_marker.search(window):
+                    return True
+        return False
+
     for name, patterns in groups.items():
         hits = sum(bool(re.search(p, t, re.I)) for p in patterns)
         threshold = thresholds.get(name, 3)
         if hits >= threshold:
+            # V1.88: for research-project-management roles, specialist science/AI
+            # mentioned as project context is not itself a candidate-level requirement.
+            if family == "research_project_management" and not _candidate_level_requirement(patterns):
+                continue
             # Patch-clamp is only a gap when it is role-defining/required, not when
             # mentioned incidentally in a broad methods list.
             if name == "patch_clamp_electrophysiology" and not re.search(
@@ -314,6 +337,29 @@ def _mandatory_experience_gaps(text: str) -> list[str]:
     if research_pm_sufficiency:
         gaps.append("research_project_management_sufficiency_experience")
 
+    # V1.88: generic but narrow role-defining specialist experience detector.
+    # Only explicit requirement language close to a specialist skill can trigger this gap.
+    specialist_skills = [
+        r"\bredcap\b|database development",
+        r"neuropsychological (?:testing|assessment)",
+        r"climate model datasets?|sub[- ]seasonal forecasts?|seasonal forecasts?|statistical downscaling",
+        r"western blot|\belisa\b|immunohistochem|immunofluorescen|flow cytometr|immunoprecipitation",
+    ]
+    requirement_language = re.compile(
+        r"(?:minimum|at least|al menos|minim(?:um|a)?).{0,40}\d+\s*(?:months?|years?|meses|anos|anys)"
+        r"|(?:required|essential|mandatory|must have|imprescindible|requisit(?:o|s)?).{0,100}"
+        r"|(?:proven|demonstrated) (?:experience|expertise).{0,100}",
+        re.I,
+    )
+    for skill in specialist_skills:
+        for match in re.finditer(skill, t, re.I):
+            window = t[max(0, match.start() - 220): min(len(t), match.end() + 220)]
+            if requirement_language.search(window):
+                gaps.append("mandatory_role_defining_specialist_experience")
+                break
+        if "mandatory_role_defining_specialist_experience" in gaps:
+            break
+
     return sorted(set(gaps))
 
 
@@ -348,6 +394,14 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
     ))
     if vocational_credential:
         gaps.append("mandatory_specific_vocational_qualification")
+
+    psychology_required = bool(re.search(
+        r"(?:required|essential|mandatory|must have|imprescindible).{0,120}(?:degree|grado|grau|licenciatura).{0,80}(?:in )?psychology"
+        r"|(?:degree|grado|grau|licenciatura).{0,80}(?:in )?psychology.{0,120}(?:required|essential|mandatory|must have|imprescindible)",
+        t, re.I
+    ))
+    if psychology_required:
+        gaps.append("mandatory_specific_academic_qualification")
 
     return gaps
 
@@ -406,13 +460,6 @@ def hard_blockers(text: str, title: str) -> list[str]:
     if fellowship_hosting and not re.search(r"(?:offers?|offering) \d+ positions|employment contract|will be hired", normalize(text), re.I):
         blockers.append("fellowship_hosting_call")
 
-    if re.search(r"project manager|project coordinator|project officer", norm_title):
-        distant = _matches(combined, DISTANT_DOMAINS)
-        core = _matches(combined, CORE_DOMAINS)
-        adjacent = _matches(combined, ADJACENT_DOMAINS)
-        if distant and not core and not adjacent:
-            blockers.append("project_management_in_distant_domain")
-
     if re.search(r"(?:must|required).{0,50}(?:work authorization|right to work).{0,50}(?:united states|usa|uk|united kingdom|germany|france)", combined, re.I):
         blockers.append("work_authorization_outside_spain")
     return sorted(set(blockers))
@@ -446,6 +493,24 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         ))
         if domain_category in {"CORE", "ADJACENT"} and research_context:
             family = "research_project_management"
+
+    # V1.88: generic data titles become research-data roles only when both the
+    # context and the duties are explicitly research/health/science oriented.
+    if family == "unclear" and re.search(
+        r"\b(?:data manager|data analyst|data coordinator|data quality analyst|data officer)\b",
+        normalize(title), re.I
+    ):
+        research_data_context = bool(re.search(
+            r"\bresearch\b|\bclinical\b|\bhealth\b|\bscientific\b|\buniversity\b|\bhospital\b|"
+            r"\bcohort\b|\bepidemiolog|\bbiomedical\b|\bstudy\b",
+            norm, re.I
+        ))
+        research_data_duties = bool(re.search(
+            r"data clean|data quality|data analys|database|\bredcap\b|data management|dataset|statistical analys",
+            norm, re.I
+        ))
+        if research_data_context and research_data_duties:
+            family = "research_data"
 
     # A research-project-management role embedded explicitly in biomedical/health
     # research is adjacent even when the project topic itself is broad or unspecified.
@@ -570,6 +635,7 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     family_scores = {
         "research_academic": 25,
         "research_project_management": 24,
+        "research_data": 20,
         "clinical_human_research": 24,
         "scientific_health_innovation": 18,
         "unclear": 5,
@@ -596,7 +662,7 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     if specialist_gap_hits:
         missing.append("Specialist academic/domain requirement not directly evidenced in CV: " + ", ".join(specialist_gap_hits))
 
-    specialist_method_gaps = _specialist_method_gaps(norm)
+    specialist_method_gaps = _specialist_method_gaps(norm, family=family)
     if specialist_method_gaps:
         missing.append("Specialist methods/background not evidenced in CV: " + ", ".join(specialist_method_gaps))
 
@@ -639,8 +705,11 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     score = int(round(domain_score + family_score + exp_score + method_score + qual_score + loc_score))
 
     # Precision guardrails.
-    if domain_category == "DISTANT":
+    if domain_category == "DISTANT" and family != "research_project_management":
         score = min(score, 49)
+    if domain_category == "DISTANT" and family == "research_project_management":
+        partial.append("Project topic is in a distant scientific domain; transferable research-management fit retained")
+        score = min(score, 69)
     if domain_category == "ADJACENT" and family == "unclear":
         score = min(score, 74)
     if family == "research_project_management" and domain_category == "UNCLEAR":
@@ -678,7 +747,11 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         score = min(score, 49)
     if "research_project_management_sufficiency_experience" in mandatory_experience_gaps:
         score = min(score, 49)
+    if "mandatory_role_defining_specialist_experience" in mandatory_experience_gaps:
+        score = min(score, 59)
     if "mandatory_specific_vocational_qualification" in mandatory_qualification_gaps:
+        score = min(score, 49)
+    if "mandatory_specific_academic_qualification" in mandatory_qualification_gaps:
         score = min(score, 49)
 
     if catalan_high_required:
