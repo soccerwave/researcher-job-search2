@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.88_EVALUATOR_CALIBRATION",
+  "production_version": "V1.89_MADRID_HISTORICAL_DETAIL_FALLBACK",
   "scoring_engine": "V1.37_TRANSFERABLE_ROLE_CALIBRATION",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Evaluator calibration only. Research-project-management roles in distant scientific topics are no longer automatic hard blockers; research-data roles have an explicit family; specialist method gaps are role-aware for research project management; mandatory role-defining specialist experience and narrow mandatory academic qualification gaps are strengthened. Thresholds, weights, Spain-only search scope, collectors, availability, state, reporting, Telegram, R2, Cloudflare scheduling and the 22-source architecture are unchanged.",
+  "scope": "Madrid collector resilience only. When today's Madrid detail fetch fails, an exact same-offer historical Full JD from the latest R2 canonical snapshot may be reused for scoring if it is at most 2 days old and identity guards still match. Fresh detail always wins; current listing metadata remains authoritative; fallback is explicitly marked with detail_source=historical_fallback and detail_age_days. Scoring V1.37, thresholds, weights, Spain-only geography, source count, seen-state semantics, reporting, Telegram and all non-Madrid collectors are unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.87_SPAIN_ONLY_SCOPE"
+  "previous_production_version": "V1.88_EVALUATOR_CALIBRATION"
 }
