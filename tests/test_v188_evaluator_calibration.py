@@ -127,3 +127,5 @@ def test_unrelated_specialist_postdoc_does_not_leak_into_review():
         """,
     ))
     assert result["score"] < 65
+
+# V1.89 import smoke trigger
