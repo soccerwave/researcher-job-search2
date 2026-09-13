@@ -37,6 +37,7 @@ jobs:
         run: |
           pytest -q \
             tests/test_v188_evaluator_calibration.py \
+            tests/test_v158_sant_pau.py \
             tests/test_realworld_calibration.py \
             tests/test_noise_regressions.py \
             tests/test_v116_regulated_trial_experience.py \
