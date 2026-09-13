@@ -629,8 +629,12 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         domain_score = 8
         partial.append("Scientific domain unclear")
     else:
-        domain_score = 0
-        partial.append("Distant domain: " + ", ".join(distant_hits[:3]))
+        if family == "research_project_management":
+            domain_score = 8
+            partial.append("Distant project topic; transferable research-management fit retained")
+        else:
+            domain_score = 0
+            partial.append("Distant domain: " + ", ".join(distant_hits[:3]))
 
     family_scores = {
         "research_academic": 25,
