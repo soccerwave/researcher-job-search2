@@ -66,7 +66,7 @@ def assert_scoring_freeze(root: Path) -> dict:
     result = verify_scoring_freeze(root)
     if not result["ok"]:
         details = "; ".join(f"{m.get('file')}: {m.get('actual', m.get('actual_engine'))}" for m in result["mismatches"])
-        raise RuntimeError(f"Frozen V1.36 scoring integrity check failed: {details}")
+        raise RuntimeError(f"Frozen V1.37 scoring integrity check failed: {details}")
     return result
 
 
