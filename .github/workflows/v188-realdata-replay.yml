@@ -1,0 +1,192 @@
+name: V1.88 Real-Data Replay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v188-realdata-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      BASELINE_SHA: f1aea528645fdd26fef41dfd6986cc9549d42772
+      CANONICAL_KEY: runs/2026-09-13/34735100595-1/all_canonical.csv.gz
+
+    steps:
+      - name: Checkout current V1.88
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+
+      - name: Download immutable Sep 13 canonical snapshot
+        run: |
+          python - <<'PY'
+          import os, boto3
+          endpoint = os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+              region_name="auto",
+          )
+          s3.download_file(os.environ["R2_BUCKET"], os.environ["CANONICAL_KEY"], "/tmp/all_canonical.csv.gz")
+          print("downloaded", os.path.getsize("/tmp/all_canonical.csv.gz"), "bytes")
+          PY
+
+      - name: Prepare V1.87 baseline worktree
+        run: |
+          git worktree add /tmp/v187 "$BASELINE_SHA"
+
+      - name: Score snapshot with V1.87 baseline
+        run: |
+          cd /tmp/v187
+          PYTHONPATH=/tmp/v187 python - <<'PY'
+          import csv, gzip, json
+          from jobbot.evaluate import evaluate_job
+
+          out = []
+          with gzip.open("/tmp/all_canonical.csv.gz", "rt", encoding="utf-8-sig", newline="") as f:
+              rows = list(csv.DictReader(f))
+          print("rows", len(rows))
+          print("columns", sorted(rows[0].keys()) if rows else [])
+          for i, row in enumerate(rows):
+              r = evaluate_job(row)
+              out.append({
+                  "i": i,
+                  "title": row.get("title", ""),
+                  "url": row.get("url", "") or row.get("job_url", ""),
+                  "source": row.get("source", ""),
+                  "score": r["score"],
+                  "recommendation": r["recommendation"],
+                  "job_family": r["job_family"],
+                  "domain_category": r["domain_category"],
+                  "missing_requirements": r["missing_requirements"],
+                  "blockers": r["blockers"],
+              })
+          with open("/tmp/v187.json", "w", encoding="utf-8") as f:
+              json.dump(out, f, ensure_ascii=False)
+          PY
+
+      - name: Score snapshot with V1.88 current evaluator
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv, gzip, json
+          from jobbot.evaluate import evaluate_job
+
+          out = []
+          with gzip.open("/tmp/all_canonical.csv.gz", "rt", encoding="utf-8-sig", newline="") as f:
+              rows = list(csv.DictReader(f))
+          for i, row in enumerate(rows):
+              r = evaluate_job(row)
+              out.append({
+                  "i": i,
+                  "title": row.get("title", ""),
+                  "url": row.get("url", "") or row.get("job_url", ""),
+                  "source": row.get("source", ""),
+                  "score": r["score"],
+                  "recommendation": r["recommendation"],
+                  "job_family": r["job_family"],
+                  "domain_category": r["domain_category"],
+                  "missing_requirements": r["missing_requirements"],
+                  "blockers": r["blockers"],
+              })
+          with open("/tmp/v188.json", "w", encoding="utf-8") as f:
+              json.dump(out, f, ensure_ascii=False)
+          PY
+
+      - name: Compare V1.87 vs V1.88
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+
+          old = json.load(open("/tmp/v187.json", encoding="utf-8"))
+          new = json.load(open("/tmp/v188.json", encoding="utf-8"))
+          assert len(old) == len(new)
+
+          order = {"SKIP":0, "LOW_PRIORITY":1, "REVIEW":2, "APPLY":3, "STRONG_APPLY":4}
+          dist_old = Counter(x["recommendation"] for x in old)
+          dist_new = Counter(x["recommendation"] for x in new)
+          family_old = Counter(x["job_family"] for x in old)
+          family_new = Counter(x["job_family"] for x in new)
+
+          changed = []
+          transitions = Counter()
+          family_transitions = Counter()
+          for a,b in zip(old,new):
+              assert a["i"] == b["i"]
+              if a["score"] != b["score"] or a["recommendation"] != b["recommendation"] or a["job_family"] != b["job_family"]:
+                  changed.append({
+                      "i": a["i"],
+                      "title": b["title"],
+                      "source": b["source"],
+                      "old_score": a["score"],
+                      "new_score": b["score"],
+                      "delta": b["score"]-a["score"],
+                      "old_rec": a["recommendation"],
+                      "new_rec": b["recommendation"],
+                      "old_family": a["job_family"],
+                      "new_family": b["job_family"],
+                      "old_domain": a["domain_category"],
+                      "new_domain": b["domain_category"],
+                      "old_missing": a["missing_requirements"],
+                      "new_missing": b["missing_requirements"],
+                  })
+              if a["recommendation"] != b["recommendation"]:
+                  transitions[(a["recommendation"],b["recommendation"])] += 1
+              if a["job_family"] != b["job_family"]:
+                  family_transitions[(a["job_family"],b["job_family"])] += 1
+
+          promoted = [x for x in changed if order[x["new_rec"]] > order[x["old_rec"]]]
+          demoted = [x for x in changed if order[x["new_rec"]] < order[x["old_rec"]]]
+          to_review_plus = [x for x in changed if order[x["old_rec"]] < order["REVIEW"] <= order[x["new_rec"]]]
+          out_of_review_plus = [x for x in changed if order[x["old_rec"]] >= order["REVIEW"] > order[x["new_rec"]]]
+
+          print("=== V1.88 REAL-DATA REPLAY ===")
+          print("rows:", len(old))
+          print("old_distribution:", dict(sorted(dist_old.items())))
+          print("new_distribution:", dict(sorted(dist_new.items())))
+          print("changed_rows:", len(changed))
+          print("promotion_count:", len(promoted))
+          print("demotion_count:", len(demoted))
+          print("into_REVIEW_or_higher:", len(to_review_plus))
+          print("out_of_REVIEW_or_higher:", len(out_of_review_plus))
+          print("recommendation_transitions:", {f"{a}->{b}":n for (a,b),n in sorted(transitions.items())})
+          print("job_family_old:", dict(sorted(family_old.items())))
+          print("job_family_new:", dict(sorted(family_new.items())))
+          print("family_transitions:", {f"{a}->{b}":n for (a,b),n in sorted(family_transitions.items())})
+
+          print("\n=== LARGEST UPWARD CHANGES ===")
+          for x in sorted(changed,key=lambda z:z["delta"],reverse=True)[:30]:
+              print(json.dumps(x, ensure_ascii=False))
+
+          print("\n=== LARGEST DOWNWARD CHANGES ===")
+          for x in sorted(changed,key=lambda z:z["delta"])[:30]:
+              print(json.dumps(x, ensure_ascii=False))
+
+          print("\n=== ALL THRESHOLD TRANSITIONS ===")
+          for x in sorted([z for z in changed if z["old_rec"] != z["new_rec"]],key=lambda z:(z["old_rec"],z["new_rec"],z["title"])):
+              print(json.dumps(x, ensure_ascii=False))
+          PY
