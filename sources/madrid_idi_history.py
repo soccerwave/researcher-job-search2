@@ -170,6 +170,7 @@ def _apply_historical_fallback(rows: list[dict], diagnostics: dict) -> None:
     diagnostics["historical_fallback_attempted"] = 0
     diagnostics["historical_fallback_used"] = 0
     diagnostics["historical_fallback_rejected"] = 0
+    recovered_fetch_statuses = []
 
     if not cache:
         return
@@ -199,6 +200,7 @@ def _apply_historical_fallback(rows: list[dict], diagnostics: dict) -> None:
         )
         row["full_detail"] = previous_detail
         row["detail_fetch_status"] = fresh_status
+        recovered_fetch_statuses.append(fresh_status)
         row["detail_status"] = "CACHE"
         row["detail_source"] = "historical_fallback"
         row["detail_resolution_method"] = "historical_fallback"
@@ -215,6 +217,11 @@ def _apply_historical_fallback(rows: list[dict], diagnostics: dict) -> None:
         diagnostics["detail_failed"] = max(0, int(diagnostics.get("detail_failed", 0) or 0) - used)
         diagnostics["detail_success"] = int(diagnostics.get("detail_success", 0) or 0) + used
         counts = dict(diagnostics.get("detail_status_counts") or {})
+        for fresh_status in recovered_fetch_statuses:
+            if fresh_status in counts:
+                counts[fresh_status] = max(0, int(counts.get(fresh_status, 0) or 0) - 1)
+                if counts[fresh_status] == 0:
+                    counts.pop(fresh_status, None)
         counts["CACHE"] = int(counts.get("CACHE", 0) or 0) + used
         diagnostics["detail_status_counts"] = counts
 
