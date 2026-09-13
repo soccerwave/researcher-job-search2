@@ -8,9 +8,9 @@ from typing import Callable
 
 from sources import academicpositions, ats_watchlist, biocat, bist, csic_institutes, euraxess, fbg_ub, fisabio, fps_andalucia, gencat_research, hospital_del_mar, idibell, iislafe, ikerbasque_calls, infojobs_spain, institutions, isciii_employment, linkedin_mads, madrid_idi, sant_pau_research, idibaps, upc_talenthub
 
-FROZEN_ENGINE = "V1.36_FINAL_SCORING_CLEANUP"
-PRODUCTION_VERSION = "V1.87_SPAIN_ONLY_SCOPE"
-FREEZE_MANIFEST = "SCORING_FREEZE_V136.json"
+FROZEN_ENGINE = "V1.37_TRANSFERABLE_ROLE_CALIBRATION"
+PRODUCTION_VERSION = "V1.88_EVALUATOR_CALIBRATION"
+FREEZE_MANIFEST = "SCORING_FREEZE_V137.json"
 SOURCE_ORDER = ("linkedin", "infojobs", "academicpositions", "ikerbasque", "atswatch", "santpau", "fbg", "biocat", "gencat", "csic", "isciii", "idibaps", "upc", "idibell", "hospitaldelmar", "euraxess", "bist", "institutions", "madrid", "fisabio", "fps", "iislafe")
 SOURCE_LABELS = {
     "linkedin": "LinkedIn",
