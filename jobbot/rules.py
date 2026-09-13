@@ -67,7 +67,7 @@ JOB_FAMILIES = {
     ],
     "research_project_management": [
         r"research project manager", r"scientific project manager", r"research project coordinator",
-        r"scientific project coordinator", r"research manager", r"research officer",
+        r"scientific project coordinator", r"research manager", r"research officer", r"research project officer",
         r"scientific project officer", r"eu project manager", r"european project manager", r"european projects manager",
         r"european project coordinator", r"european projects coordinator",
         r"european projects officer", r"eu projects officer", r"horizon europe project manager",
