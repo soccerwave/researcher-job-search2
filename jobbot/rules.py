@@ -119,7 +119,7 @@ DIRECT_EXPERIENCE_SIGNALS = {
     "rct": [r"randomi[sz]ed controlled trial", r"randomi[sz]ed.{0,30}intervention", r"\brct\b", r"ensayo controlado aleator"],
     "human_intervention": [r"human intervention", r"intervention stud", r"intervention trial"],
     "project_coordination": [r"project coordination", r"project coordinator", r"coordinat.*project", r"consortium coordination", r"coordinacion.{0,40}proyectos?", r"gestion.{0,40}proyectos?", r"coordinacio.{0,40}projectes?", r"gestio.{0,40}projectes?"],
-    "eu_projects": [r"horizon europe", r"marie sklodowska", r"\bmsca\b", r"eu funded", r"european commission", r"proyectos? europeos?", r"projectes? europeus?", r"consorcios? europeos?", r"consorcis? europeus?"],
+    "eu_projects": [r"horizon europe", r"marie sklodowska", r"\bmsca\b", r"eu funded", r"european commission", r"european research project", r"proyectos? europeos?", r"projectes? europeus?", r"consorcios? europeos?", r"consorcis? europeus?"],
     "grants": [r"grant writing", r"grant management", r"grant reporting", r"research grants?", r"proposal development", r"propuestas? de financiacion", r"propostes? de financament", r"gestion.{0,30}subvenciones?", r"gestio.{0,30}subvencions?"],
     "international": [r"international consortium", r"international collaboration", r"international.{0,40}projects?", r"multidisciplinary", r"consorcio internacional", r"consorci internacional", r"colaboracion internacional", r"collaboracio internacional", r"agents?.{0,40}internacionals?"],
     "scientific_writing": [r"scientific writing", r"manuscript", r"publication", r"redaccion cientifica", r"escriptura cientifica", r"publicaciones? cientificas?", r"publicacions? cientifiques?"],
