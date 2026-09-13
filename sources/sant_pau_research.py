@@ -153,7 +153,7 @@ def collect(
     diagnostics: dict | None = None,
     max_pages: int = 3,
     max_jobs: int = 60,
-    timeout: int | tuple[int, int] = (10, 60),
+    timeout: int | tuple[int, int] = (10, 20),
     enrich_detail: bool = True,
     session=None,
 ) -> list[dict]:
@@ -177,10 +177,12 @@ def collect(
         "truncated": 0,
         "coverage_complete": False,
         "coverage_warning": "",
+        "board_timeout_seconds": 20,
+        "transport_retries": 1,
     })
 
     own_session = session is None
-    session = session or make_retry_session(total_retries=3, backoff_factor=1.0)
+    session = session or make_retry_session(total_retries=1, backoff_factor=1.0)
     try:
         by_ref: dict[str, dict] = {}
         total_reported: int | None = None
