@@ -146,3 +146,5 @@ def test_v189_madrid_history_cache_smoke(tmp_path):
     current = {"id":"123","title":"Project manager","company":"Institute"}
     assert h._match_current_to_history(current, cache) is not None
     assert h._match_current_to_history({**current, "title":"Different role"}, cache) is None
+
+# V1.89 diagnostics consistency smoke trigger
