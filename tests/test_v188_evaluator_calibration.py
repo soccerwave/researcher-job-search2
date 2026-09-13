@@ -129,3 +129,20 @@ def test_unrelated_specialist_postdoc_does_not_leak_into_review():
     assert result["score"] < 65
 
 # V1.89 import smoke trigger
+
+
+def test_v189_madrid_history_cache_smoke(tmp_path):
+    import csv, gzip
+    from datetime import date
+    from sources import madrid_idi_history as h
+    p = tmp_path / "h.csv.gz"
+    row = {"source":"Madrid I+D+i","id":"123","url":"offer-123","title":"Project manager",
+           "company":"Institute","availability_as_of":"2026-09-12","detail_status":"OK",
+           "full_detail":"requirements functions project management " * 30}
+    with gzip.open(p, "wt", encoding="utf-8-sig", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(row)); w.writeheader(); w.writerow(row)
+    cache, diag = h._load_cache(p, as_of=date(2026, 9, 13))
+    assert ("id", "123") in cache and diag["historical_detail_cache_eligible"] == 1
+    current = {"id":"123","title":"Project manager","company":"Institute"}
+    assert h._match_current_to_history(current, cache) is not None
+    assert h._match_current_to_history({**current, "title":"Different role"}, cache) is None
