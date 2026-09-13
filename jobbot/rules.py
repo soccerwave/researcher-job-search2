@@ -89,6 +89,14 @@ JOB_FAMILIES = {
         r"coordinador.? de projectes europeus", r"tecnic(?: a)? de projectes d innovacio",
         r"tecnic(?: a)? de projectes de innovacio"
     ],
+    "research_data": [
+        r"research data manager", r"scientific data manager",
+        r"research data analyst", r"scientific data analyst",
+        r"research data officer", r"scientific data officer",
+        r"health data analyst", r"clinical data manager",
+        r"data manager and data analyst", r"research data coordinator",
+        r"scientific data coordinator"
+    ],
     "clinical_human_research": [
         r"clinical research coordinator", r"study coordinator", r"trial coordinator", r"clinical trial coordinator", r"clinical trials coordinator", r"clinical study coordinator",
         r"clinical project coordinator", r"research study coordinator", r"clinical researcher",
