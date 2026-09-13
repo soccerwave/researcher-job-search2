@@ -1,0 +1,44 @@
+name: V1.88 Evaluator Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v188-evaluator-test.yml"
+      - "jobbot/evaluate.py"
+      - "jobbot/rules.py"
+      - "tests/test_v188_evaluator_calibration.py"
+      - "SCORING_FREEZE_V137.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Verify scoring freeze
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jobbot.production import assert_scoring_freeze
+          print(assert_scoring_freeze(Path('.').resolve()))
+          PY
+      - name: Run V1.88 and evaluator regressions
+        run: |
+          pytest -q \
+            tests/test_v188_evaluator_calibration.py \
+            tests/test_realworld_calibration.py \
+            tests/test_noise_regressions.py \
+            tests/test_v116_regulated_trial_experience.py \
+            tests/test_v18_precision_regressions.py \
+            tests/test_v19_precision_regressions.py
