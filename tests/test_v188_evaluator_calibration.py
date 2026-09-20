@@ -199,3 +199,39 @@ def test_v191_preferred_specialist_degree_does_not_create_gap():
         """,
     ))
     assert not any("mandatory_specific_academic_qualification" in x for x in result["missing_requirements"])
+
+
+def test_v192_strong_institutional_research_management_reaches_review():
+    result = evaluate_job(job(
+        "Técnico/a de Gestión de Investigación Ref. 11-2026",
+        """
+        Instituto de investigación. Gestión y coordinación de proyectos y procesos estratégicos
+        con impacto en la investigación científica. Gestión de convocatorias internas de ayudas,
+        seguimiento de acreditaciones institucionales CERCA, ISCIII y HRS4R, secretaría técnica
+        de la comisión de priorización de proyectos, elaboración de informes y memorias, y
+        coordinación científica. Experiencia mínima de 3 años como Project Manager en un centro
+        de investigación o universidad. Titulación universitaria en ciencias.
+        """,
+    ))
+    assert result["job_family"] == "research_project_management"
+    assert result["domain_category"] == "ADJACENT"
+    assert result["score"] >= 65
+    assert result["recommendation"] == "REVIEW"
+    assert any("Strong institutional research-management responsibilities" in x for x in result["fit_signals"])
+
+
+def test_v192_research_employer_alone_does_not_promote_generic_pm():
+    result = evaluate_job(job(
+        "Project Manager",
+        """
+        Project Manager at a university research institute responsible for office relocation,
+        building refurbishment, procurement, vendor management and facilities scheduling.
+        No responsibility for research projects, grants, scientific coordination or research
+        administration.
+        """,
+    ))
+    assert not (
+        result["job_family"] == "research_project_management"
+        and result["domain_category"] == "ADJACENT"
+        and result["score"] >= 65
+    )
