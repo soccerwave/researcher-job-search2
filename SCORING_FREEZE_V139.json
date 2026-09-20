@@ -1,0 +1,18 @@
+{
+  "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
+  "package": "V1.92_INSTITUTIONAL_RESEARCH_PM_FIX",
+  "status": "ACTIVE_PRODUCTION_CANDIDATE",
+  "note": "V1.92 recovers strong institutional research-management roles whose scientific topic is unspecified, requiring multiple research-administration signals before promotion. Mandatory qualification guards from V1.38, thresholds and weights are unchanged.",
+  "tests_planned": [
+    "tests/test_v188_evaluator_calibration.py",
+    "existing evaluator regression suite"
+  ],
+  "sha256": {
+    "jobbot/evaluate.py": "b6301d4d397ee040ee7b988eeab41ab0f65f6068e8055e44bb9dd3346c20af51",
+    "jobbot/rules.py": "012147f8fc6493e8801fd184977638365346a658e79c224058e4271d670e611b",
+    "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+    "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+    "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+    "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+  }
+}
