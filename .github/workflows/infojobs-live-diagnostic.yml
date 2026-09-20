@@ -66,7 +66,7 @@ jobs:
           grep -Eio '<title>[^<]{0,250}' /tmp/detail.html | head -3 || true
           echo "MARKER_COUNTS:"
           for m in "__NUXT__" "application/ld+json" "offer" "description" "captcha" "robot" "access denied" "cloudflare" "login" "jobOffer" "jobTitle"; do
-            c=$(grep -io "$m" /tmp/detail.html | wc -l)
+            c=$((grep -io "$m" /tmp/detail.html || true) | wc -l)
             echo "$m=$c"
           done
           echo "TEXT_SAMPLE:"
