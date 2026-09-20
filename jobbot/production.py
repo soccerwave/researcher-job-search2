@@ -8,9 +8,9 @@ from typing import Callable
 
 from sources import academicpositions, ats_watchlist, biocat, bist, csic_institutes, euraxess, fbg_ub, fisabio, fps_andalucia, gencat_research, hospital_del_mar, idibell, iislafe, ikerbasque_calls, infojobs_spain, institutions, isciii_employment, linkedin_mads, madrid_idi_history as madrid_idi, sant_pau_research, idibaps, upc_talenthub
 
-FROZEN_ENGINE = "V1.37_TRANSFERABLE_ROLE_CALIBRATION"
-PRODUCTION_VERSION = "V1.90_SANTPAU_BOUNDED_TRANSPORT"
-FREEZE_MANIFEST = "SCORING_FREEZE_V137.json"
+FROZEN_ENGINE = "V1.38_MANDATORY_QUALIFICATION_GUARDS"
+PRODUCTION_VERSION = "V1.91_MANDATORY_QUALIFICATION_FIX"
+FREEZE_MANIFEST = "SCORING_FREEZE_V138.json"
 SOURCE_ORDER = ("linkedin", "infojobs", "academicpositions", "ikerbasque", "atswatch", "santpau", "fbg", "biocat", "gencat", "csic", "isciii", "idibaps", "upc", "idibell", "hospitaldelmar", "euraxess", "bist", "institutions", "madrid", "fisabio", "fps", "iislafe")
 SOURCE_LABELS = {
     "linkedin": "LinkedIn",
@@ -66,7 +66,7 @@ def assert_scoring_freeze(root: Path) -> dict:
     result = verify_scoring_freeze(root)
     if not result["ok"]:
         details = "; ".join(f"{m.get('file')}: {m.get('actual', m.get('actual_engine'))}" for m in result["mismatches"])
-        raise RuntimeError(f"Frozen V1.37 scoring integrity check failed: {details}")
+        raise RuntimeError(f"Frozen {FROZEN_ENGINE} scoring integrity check failed: {details}")
     return result
 
 
