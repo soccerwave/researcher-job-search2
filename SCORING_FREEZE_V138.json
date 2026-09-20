@@ -8,7 +8,7 @@
     "existing evaluator regression suite"
   ],
   "sha256": {
-    "jobbot/evaluate.py": "5c85e6427fe5b7bb26974048fa2fded68438c801ff8ab372b025dabf4b2e9d05",
+    "jobbot/evaluate.py": "55b387c6395d9084bd4ead8317b63c5501c07bffb790428750853044e8d769b9",
     "jobbot/rules.py": "012147f8fc6493e8801fd184977638365346a658e79c224058e4271d670e611b",
     "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
     "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
