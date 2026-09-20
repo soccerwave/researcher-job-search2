@@ -1,0 +1,53 @@
+name: InfoJobs Live Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/infojobs-live-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Bun
+        run: npm install -g bun
+      - name: Clone Spain fork
+        run: git clone --depth 1 https://github.com/erikpr1994/ai-job-search-spain.git /tmp/ij
+      - name: Compare detail by ID versus canonical URL
+        shell: bash
+        run: |
+          set -u
+          cd /tmp/ij
+          CLI=".agents/skills/infojobs-search/cli/src/cli.ts"
+          bun run "$CLI" search --jobage 7 --limit 1 --format json > /tmp/search.json
+          cat /tmp/search.json
+          ID=$(python -c 'import json; d=json.load(open("/tmp/search.json")); print(d["results"][0]["id"] if d.get("results") else "")')
+          URL=$(python -c 'import json; d=json.load(open("/tmp/search.json")); print(d["results"][0]["url"] if d.get("results") else "")')
+          echo "PROBE_ID=$ID"
+          echo "PROBE_URL=$URL"
+          if [ -z "$ID" ] || [ -z "$URL" ]; then
+            echo "NO_SEARCH_RESULT"
+            exit 0
+          fi
+          set +e
+          bun run "$CLI" detail "$ID" --format plain >/tmp/by_id.out 2>/tmp/by_id.err
+          ID_RC=$?
+          bun run "$CLI" detail "$URL" --format plain >/tmp/by_url.out 2>/tmp/by_url.err
+          URL_RC=$?
+          set -e
+          echo "ID_RC=$ID_RC"
+          echo "ID_STDERR=$(tr '\n' ' ' </tmp/by_id.err)"
+          echo "ID_OUT_CHARS=$(wc -c </tmp/by_id.out)"
+          echo "URL_RC=$URL_RC"
+          echo "URL_STDERR=$(tr '\n' ' ' </tmp/by_url.err)"
+          echo "URL_OUT_CHARS=$(wc -c </tmp/by_url.out)"
+          if [ "$URL_RC" -eq 0 ]; then
+            head -c 500 /tmp/by_url.out
+          fi
