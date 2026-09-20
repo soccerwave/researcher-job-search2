@@ -8,7 +8,8 @@ on:
       - "jobbot/evaluate.py"
       - "jobbot/rules.py"
       - "tests/test_v188_evaluator_calibration.py"
-      - "SCORING_FREEZE_V137.json"
+      - "SCORING_FREEZE_V138.json"
+      - "jobbot/production.py"
   workflow_dispatch:
 
 permissions:
