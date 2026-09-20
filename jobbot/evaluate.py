@@ -557,6 +557,26 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         domain_category = "ADJACENT"
         domain_hits = sorted(set(domain_hits + ["health_sciences"]))
 
+    # V1.92: a research-project-management role can be strongly aligned even when the
+    # scientific topic is unspecified. Promote only when several institutional research-
+    # administration signals co-occur; employer context alone is never enough.
+    institutional_research_management_signals = [
+        bool(re.search(r"research institute|research centre|research center|centro de investigacion|centre de recerca|instituto de investigacion|universit", norm, re.I)),
+        bool(re.search(r"gestion.{0,80}(?:proyectos?|projectes?|investigacion|recerca)|gestio.{0,80}(?:projectes?|recerca)|coordinacion.{0,80}(?:proyectos?|procesos?|cientific)|coordinacio.{0,80}(?:projectes?|processos?|cientific)", norm, re.I)),
+        bool(re.search(r"convocatorias?.{0,80}(?:ayudas?|competitivas?|internas?)|convocatories?.{0,80}(?:ajuts?|competitives?|internes?)|grant calls?|research grants?|funding calls?", norm, re.I)),
+        bool(re.search(r"acreditacion(?:es)? institucional|acreditacions? institucionals?|hrs4r|\bcerca\b|\bisciii\b", norm, re.I)),
+        bool(re.search(r"informes?|memorias?|reports?|reporting|presentaciones?|presentacions?.{0,120}(?:organos?|organs?|governance|advisory)", norm, re.I)),
+        bool(re.search(r"comision.{0,80}(?:proyectos?|priorizacion)|comissio.{0,80}(?:projectes?|prioritzacio)|scientific coordination|coordinacion cientifica|coordinacio cientifica", norm, re.I)),
+    ]
+    institutional_research_management_context = bool(
+        family == "research_project_management"
+        and domain_category == "UNCLEAR"
+        and sum(institutional_research_management_signals) >= 3
+    )
+    if institutional_research_management_context:
+        domain_category = "ADJACENT"
+        domain_hits = sorted(set(domain_hits + ["institutional_research_management"]))
+
     # Some public-sector/research-centre adverts use descriptive or grade-based titles
     # rather than a canonical role name. Infer a family from the full JD only when several
     # role-defining signals co-occur; this is deliberately stricter than title matching.
@@ -686,8 +706,15 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
 
     exp_hits = _matches(norm, DIRECT_EXPERIENCE_SIGNALS)
     exp_score = min(20, len(exp_hits) * 4)
+    if institutional_research_management_context:
+        # Rich research-administration duties (grants/calls, coordination, accreditation,
+        # reporting/governance) are directly transferable from the target profile even when
+        # legacy keyword buckets capture only one of them.
+        exp_score = max(exp_score, 12)
     if exp_hits:
         fit.append("CV-aligned responsibilities: " + ", ".join(exp_hits[:5]))
+        if institutional_research_management_context:
+            fit.append("Strong institutional research-management responsibilities")
     else:
         partial.append("Few explicit transferable-experience signals in JD")
 
