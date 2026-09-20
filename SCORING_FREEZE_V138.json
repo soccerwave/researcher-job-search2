@@ -1,0 +1,18 @@
+{
+  "scoring_engine": "V1.38_MANDATORY_QUALIFICATION_GUARDS",
+  "package": "V1.91_MANDATORY_QUALIFICATION_FIX",
+  "status": "ACTIVE_PRODUCTION_CANDIDATE",
+  "note": "V1.91 strengthens explicit mandatory academic/professional qualification handling for role-defining credentials while preserving thresholds, weights and the V1.88 transferable-role calibration.",
+  "tests_planned": [
+    "tests/test_v188_evaluator_calibration.py",
+    "existing evaluator regression suite"
+  ],
+  "sha256": {
+    "jobbot/evaluate.py": "5c85e6427fe5b7bb26974048fa2fded68438c801ff8ab372b025dabf4b2e9d05",
+    "jobbot/rules.py": "012147f8fc6493e8801fd184977638365346a658e79c224058e4271d670e611b",
+    "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+    "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+    "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+    "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+  }
+}
