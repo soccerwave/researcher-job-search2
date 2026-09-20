@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.90_SANTPAU_BOUNDED_TRANSPORT",
-  "scoring_engine": "V1.37_TRANSFERABLE_ROLE_CALIBRATION",
+  "production_version": "V1.91_MANDATORY_QUALIFICATION_FIX",
+  "scoring_engine": "V1.38_MANDATORY_QUALIFICATION_GUARDS",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Sant Pau transport resilience only. The Sant Pau collector now uses a 20-second default board timeout and one retry instead of the shared three-retry behavior, preventing a slow board from blocking production for several minutes. Parser logic, pagination, Full-JD requirements, scoring V1.37, thresholds, weights, Spain-only geography, source count, Madrid V1.89 fallback, seen-state semantics, reporting, Telegram and all other collectors are unchanged.",
+  "scope": "Evaluator qualification handling only. Explicit mandatory role-defining credentials such as Medicine, Physiotherapy and Applied Statistics are now treated as eligibility-level requirements when clearly required; preferred/desirable mentions and broad degree requirements remain non-blocking. Medicine in common Spanish/Catalan required-qualification forms is a hard blocker. Thresholds, weights, collector behavior, Spain-only geography, source count, Madrid V1.89 fallback, Sant Pau V1.90 transport bounds, seen-state semantics, reporting and Telegram are unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.89_MADRID_HISTORICAL_DETAIL_FALLBACK"
+  "previous_production_version": "V1.90_SANTPAU_BOUNDED_TRANSPORT"
 }
