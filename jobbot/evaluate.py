@@ -364,25 +364,26 @@ def _mandatory_experience_gaps(text: str) -> list[str]:
 
 
 def _mandatory_qualification_gaps(text: str) -> list[str]:
-    """Detect narrowly defined mandatory credentials not evidenced in the profile.
+    """Detect explicit role-defining credentials not evidenced in the profile.
 
-    This is intentionally not a generic degree-level checker: a higher academic degree can
-    often satisfy broad education requirements. We only flag recruitment language that
-    requires a specific vocational technician credential (e.g. FP/CFGS/Técnico Superior)
-    inside the necessary/indispensable requirements section. Such credentials are distinct
-    professional qualifications and are not evidenced by the profile's BSc/MSc/PhD.
+    Keep this conservative: broad degree-level requirements are not gaps. We only flag
+    clearly mandatory, field-specific academic/professional credentials or specialist
+    degrees that the candidate profile does not evidence.
     """
     t = normalize(text)
     gaps: list[str] = []
 
-    # Restrict matching to the actual mandatory-requirements section so an FP/CFGS item
-    # appearing later under "Méritos valorables" does not become a false eligibility gap.
+    # Restrict section-based matching to mandatory requirements and stop before preferred
+    # or merit-only material so desirable credentials never become eligibility gaps.
     section_match = re.search(
-        r"(?:requisitos? necesarios?|requisitos? indispensables?|requisits? necessaris?|requisits? indispensables?|required qualifications?|essential qualifications?)"
-        r"(?P<section>.{0,1200}?)(?=(?:valoracion de meritos|valoracio de merits|meritos valorables|merits valorables|preferred qualifications|desirable|funciones|functions|$))",
+        r"(?:requisitos? necesarios?|requisitos? indispensables?|requisits? necessaris?|requisits? indispensables?|"
+        r"required qualifications?|essential qualifications?|titulacion requerida|titulacio requerida|required education)"
+        r"(?P<section>.{0,1400}?)(?=(?:valoracion de meritos|valoracio de merits|meritos valorables|merits valorables|"
+        r"preferred qualifications|desirable|deseable|valorable|funciones|functions|responsibilities|$))",
         t, re.I
     )
     required_section = section_match.group("section") if section_match else ""
+
     vocational_credential = bool(re.search(
         r"(?:formacion profesional|formacio professional).{0,80}(?:grado superior|grau superior)"
         r"|(?:ciclo formativo|cicle formatiu).{0,80}(?:grado superior|grau superior)"
@@ -395,12 +396,36 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
     if vocational_credential:
         gaps.append("mandatory_specific_vocational_qualification")
 
-    psychology_required = bool(re.search(
-        r"(?:required|essential|mandatory|must have|imprescindible).{0,120}(?:degree|grado|grau|licenciatura).{0,80}(?:in )?psychology"
-        r"|(?:degree|grado|grau|licenciatura).{0,80}(?:in )?psychology.{0,120}(?:required|essential|mandatory|must have|imprescindible)",
-        t, re.I
-    ))
-    if psychology_required:
+    # Explicit field-specific academic credentials seen in real research vacancies.
+    # These are role-defining qualifications, not interchangeable with a generic higher degree.
+    academic_fields = (
+        r"psychology|psicologia|"
+        r"physiotherapy|physical therapy|fisioterapia|"
+        r"applied statistics|estadistica aplicada|estadistica aplicada|"
+        r"biostatistics|bioestadistica|bioestadistica"
+    )
+    explicit_required_academic = bool(
+        re.search(
+            rf"(?:required|essential|mandatory|must have|imprescindible).{{0,140}}"
+            rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})",
+            t, re.I
+        )
+        or re.search(
+            rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})"
+            rf".{{0,140}}(?:required|essential|mandatory|must have|imprescindible)",
+            t, re.I
+        )
+        or re.search(
+            rf"(?:titulacion requerida|titulacio requerida|required qualifications?|essential qualifications?|required education)"
+            rf".{{0,220}}(?:degree|grado|grau|licenciatura|master|msc)?\s*(?:in |en )?(?:{academic_fields})",
+            t, re.I
+        )
+        or bool(required_section and re.search(
+            rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})",
+            required_section, re.I
+        ))
+    )
+    if explicit_required_academic:
         gaps.append("mandatory_specific_academic_qualification")
 
     return gaps
