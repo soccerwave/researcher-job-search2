@@ -373,6 +373,15 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
     t = normalize(text)
     gaps: list[str] = []
 
+    # Neutralize explicit negations before looking for mandatory markers. This prevents
+    # phrases such as "preferred but not mandatory" from being interpreted as requirements.
+    required_text = re.sub(
+        r"\bnot\s+(?:mandatory|required|essential)\b|\bno\s+(?:obligatorio|obligatoria|obligatori|obligatoria|imprescindible)\b",
+        " optional ",
+        t,
+        flags=re.I,
+    )
+
     # Restrict section-based matching to mandatory requirements and stop before preferred
     # or merit-only material so desirable credentials never become eligibility gaps.
     section_match = re.search(
@@ -380,7 +389,7 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
         r"required qualifications?|essential qualifications?|titulacion requerida|titulacio requerida|required education)"
         r"(?P<section>.{0,1400}?)(?=(?:valoracion de meritos|valoracio de merits|meritos valorables|merits valorables|"
         r"preferred qualifications|desirable|deseable|valorable|funciones|functions|responsibilities|$))",
-        t, re.I
+        required_text, re.I
     )
     required_section = section_match.group("section") if section_match else ""
 
@@ -408,17 +417,17 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
         re.search(
             rf"(?:required|essential|mandatory|must have|imprescindible).{{0,140}}"
             rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})",
-            t, re.I
+            required_text, re.I
         )
         or re.search(
             rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})"
             rf".{{0,140}}(?:required|essential|mandatory|must have|imprescindible)",
-            t, re.I
+            required_text, re.I
         )
         or re.search(
             rf"(?:titulacion requerida|titulacio requerida|required qualifications?|essential qualifications?|required education)"
             rf".{{0,220}}(?:degree|grado|grau|licenciatura|master|msc)?\s*(?:in |en )?(?:{academic_fields})",
-            t, re.I
+            required_text, re.I
         )
         or bool(required_section and re.search(
             rf"(?:degree|grado|grau|licenciatura|master|msc).{{0,100}}(?:in |en )?(?:{academic_fields})",
