@@ -139,6 +139,8 @@ HARD_BLOCKERS = {
         r"(?:md|medical degree|degree in medicine).{0,50}(?:required|mandatory|essential|imprescindible)",
         r"(?:required|mandatory|essential|imprescindible).{0,50}(?:md|medical degree|degree in medicine)",
         r"education and qualifications.{0,120}required.{0,40}degree in medicine",
+        r"(?:titulacion requerida|titulacio requerida).{0,120}(?:grado|grau|licenciatura).{0,80}(?:en )?medicina",
+        r"(?:requisitos? necesarios?|requisits? necessaris?).{0,260}(?:grado|grau|licenciatura).{0,80}(?:en )?medicina",
         r"required.{0,80}specialist medical training",
     ],
     "mandatory_nursing": [
