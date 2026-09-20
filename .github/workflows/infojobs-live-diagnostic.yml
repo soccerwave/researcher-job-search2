@@ -64,3 +64,18 @@ jobs:
           echo "NEXT_DATA_COUNT=$(grep -o '__NEXT_DATA__' /tmp/detail.html | wc -l)"
           echo "TITLE_TAG:"
           grep -Eio '<title>[^<]{0,250}' /tmp/detail.html | head -3 || true
+          echo "MARKER_COUNTS:"
+          for m in "__NUXT__" "application/ld+json" "offer" "description" "captcha" "robot" "access denied" "cloudflare" "login" "jobOffer" "jobTitle"; do
+            c=$(grep -io "$m" /tmp/detail.html | wc -l)
+            echo "$m=$c"
+          done
+          echo "TEXT_SAMPLE:"
+          python - <<'PY'
+          import re, html
+          raw=open('/tmp/detail.html',encoding='utf-8',errors='ignore').read()
+          raw=re.sub(r'<script[\s\S]*?</script>', ' ', raw, flags=re.I)
+          raw=re.sub(r'<style[\s\S]*?</style>', ' ', raw, flags=re.I)
+          txt=html.unescape(re.sub(r'<[^>]+>', ' ', raw))
+          txt=re.sub(r'\s+',' ',txt).strip()
+          print(txt[:1800])
+          PY
