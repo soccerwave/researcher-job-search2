@@ -148,3 +148,54 @@ def test_v189_madrid_history_cache_smoke(tmp_path):
     assert h._match_current_to_history({**current, "title":"Different role"}, cache) is None
 
 # V1.89 diagnostics consistency smoke trigger
+
+
+def test_v191_catalan_required_medicine_is_hard_blocker():
+    result = evaluate_job(job(
+        "MD Clinical Researcher",
+        """
+        Titulació requerida: Grau en Medicina.
+        Especialitat en Hematologia i Hemoteràpia.
+        Tasques de recerca clínica i coordinació d'estudis.
+        """,
+    ))
+    assert "mandatory_md" in result["blockers"]
+    assert result["score"] == 0
+    assert result["recommendation"] == "SKIP"
+
+
+def test_v191_required_physiotherapy_degree_caps_eligibility():
+    result = evaluate_job(job(
+        "R2A Postdoctoral Researcher - Systems Neuroscience",
+        """
+        Required qualifications: Degree in Physiotherapy.
+        Experience with virtual reality experiments and neuroscience research.
+        PhD required.
+        """,
+    ))
+    assert any("mandatory_specific_academic_qualification" in x for x in result["missing_requirements"])
+    assert result["score"] <= 49
+
+
+def test_v191_required_applied_statistics_degree_caps_eligibility():
+    result = evaluate_job(job(
+        "Head of Medical Statistics Platform",
+        """
+        Essential qualifications: University degree in Applied Statistics.
+        The role leads statistical support for clinical studies and a multidisciplinary team.
+        """,
+    ))
+    assert any("mandatory_specific_academic_qualification" in x for x in result["missing_requirements"])
+    assert result["score"] <= 49
+
+
+def test_v191_preferred_specialist_degree_does_not_create_gap():
+    result = evaluate_job(job(
+        "Research Data Analyst",
+        """
+        Degree in life sciences or a related quantitative field required.
+        Applied Statistics is preferred but not mandatory.
+        Responsibilities include data cleaning and statistical analysis.
+        """,
+    ))
+    assert not any("mandatory_specific_academic_qualification" in x for x in result["missing_requirements"])
