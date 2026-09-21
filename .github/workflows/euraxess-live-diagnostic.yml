@@ -24,6 +24,41 @@ jobs:
           grep -Eio '.{0,180}(job_country|country[^<]{0,80}|Spain|España).{0,240}' /tmp/search.html | head -80 || true
           echo "=== form control names ==="
           grep -Eio '<(input|select)[^>]+(name|id)="[^"]+"[^>]*>' /tmp/search.html | grep -Ei 'country|field|keyword|search|filter' | head -100 || true
+          echo "=== parsed country option ==="
+          python - <<'PY'
+          from bs4 import BeautifulSoup
+          html=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
+          soup=BeautifulSoup(html,'html.parser')
+          sel=soup.find('select', attrs={'name':'job_country[]'})
+          print("SELECT_FOUND=", bool(sel))
+          if sel:
+              for o in sel.find_all('option'):
+                  if 'spain' in o.get_text(" ",strip=True).lower():
+                      print("SPAIN_OPTION_VALUE=", repr(o.get('value')))
+                      print("SPAIN_OPTION_TEXT=", repr(o.get_text(" ",strip=True)))
+          PY
+          SPAIN_VALUE=$(python - <<'PY'
+          from bs4 import BeautifulSoup
+          import urllib.parse
+          html=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
+          soup=BeautifulSoup(html,'html.parser')
+          sel=soup.find('select', attrs={'name':'job_country[]'})
+          val=''
+          if sel:
+              for o in sel.find_all('option'):
+                  if 'spain' in o.get_text(" ",strip=True).lower():
+                      val=o.get('value') or ''
+                      break
+          print(urllib.parse.quote(val,safe=''))
+          PY
+          )
+          echo "SPAIN_VALUE_ENCODED=$SPAIN_VALUE"
+          if [ -n "$SPAIN_VALUE" ]; then
+            curl -L -sS -A "$UA" "https://euraxess.ec.europa.eu/jobs/search?job_country%5B%5D=$SPAIN_VALUE" -o /tmp/newfilter.html
+            echo "NEWFILTER_SPAIN_COUNT=$(grep -oi '>Spain<' /tmp/newfilter.html | wc -l || true)"
+            echo "NEWFILTER_SWEDEN_COUNT=$(grep -oi '>Sweden<' /tmp/newfilter.html | wc -l || true)"
+            grep -Eio 'Search results[^<]{0,80}|Showing results[^<]{0,80}' /tmp/newfilter.html | head -10 || true
+          fi
           echo "=== f[0] legacy URL ==="
           curl -L -sS -A "$UA" -w '\nHTTP=%{http_code} FINAL=%{url_effective}\n'             'https://euraxess.ec.europa.eu/jobs/search?f%5B0%5D=job_country%3A788' -o /tmp/legacy.html
           grep -Eio 'Search results[^<]{0,80}|Showing results[^<]{0,80}|JOB[^<]{0,120}Spain' /tmp/legacy.html | head -20 || true
