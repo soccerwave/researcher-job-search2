@@ -1,0 +1,31 @@
+name: EURAXESS Live Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/euraxess-live-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect live EURAXESS search form and Spain filtering
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+          curl -L -sS -A "$UA" 'https://euraxess.ec.europa.eu/jobs/search' -o /tmp/search.html
+          echo "HTML_CHARS=$(wc -c </tmp/search.html)"
+          echo "=== country/facet snippets ==="
+          grep -Eio '.{0,180}(job_country|country[^<]{0,80}|Spain|España).{0,240}' /tmp/search.html | head -80 || true
+          echo "=== form control names ==="
+          grep -Eio '<(input|select)[^>]+(name|id)="[^"]+"[^>]*>' /tmp/search.html | grep -Ei 'country|field|keyword|search|filter' | head -100 || true
+          echo "=== f[0] legacy URL ==="
+          curl -L -sS -A "$UA" -w '\nHTTP=%{http_code} FINAL=%{url_effective}\n'             'https://euraxess.ec.europa.eu/jobs/search?f%5B0%5D=job_country%3A788' -o /tmp/legacy.html
+          grep -Eio 'Search results[^<]{0,80}|Showing results[^<]{0,80}|JOB[^<]{0,120}Spain' /tmp/legacy.html | head -20 || true
+          echo "LEGACY_SPAIN_COUNT=$(grep -oi '>Spain<' /tmp/legacy.html | wc -l || true)"
+          echo "LEGACY_SWEDEN_COUNT=$(grep -oi '>Sweden<' /tmp/legacy.html | wc -l || true)"
