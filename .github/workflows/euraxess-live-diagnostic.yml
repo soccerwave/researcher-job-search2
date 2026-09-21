@@ -39,6 +39,31 @@ jobs:
               if re.search(r'\b(name|type|value|data-drupal-selector|id)=',tag,re.I):
                   print("CONTROL=",html.unescape(re.sub(r'\s+',' ',tag))[:500])
           PY
+          echo "=== pagination contract ==="
+          python - <<'PY'
+          import re, html
+          raw=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
+          hrefs=[]
+          for m in re.finditer(r'href="([^"]+)"',raw,re.I):
+              h=html.unescape(m.group(1))
+              if 'page=' in h or 'pager' in h.lower():
+                  hrefs.append(h)
+          print('PAGER_HREFS=',hrefs[:40])
+          for pat in [r'<nav[^>]+aria-label="[^"]*[Pp]agination[^"]*"[^>]*>([\s\S]*?)</nav>',
+                      r'<nav[^>]+class="[^"]*pager[^"]*"[^>]*>([\s\S]*?)</nav>']:
+              m=re.search(pat,raw,re.I)
+              if m:
+                  txt=re.sub(r'<[^>]+>',' ',m.group(0))
+                  print('PAGER_TEXT=',re.sub(r'\s+',' ',html.unescape(txt)).strip()[:1200])
+                  break
+          PY
+          echo "=== query response headers/hash ==="
+          for U in             'https://euraxess.ec.europa.eu/jobs/search'             'https://euraxess.ec.europa.eu/jobs/search?page=1'             'https://euraxess.ec.europa.eu/jobs/search?page=2'; do
+            echo "URL=$U"
+            curl -L -sS -A "$UA" -D /tmp/hdr -o /tmp/body "$U"
+            grep -Ei '^(HTTP/|age:|cache-control:|x-cache:|via:|vary:|etag:|last-modified:)' /tmp/hdr | tail -20 || true
+            sha256sum /tmp/body
+          done
           echo "=== GLOBAL NEWEST DEPTH PROBE ==="
           python - <<'PY'
           import re, html, time, urllib.parse, urllib.request
