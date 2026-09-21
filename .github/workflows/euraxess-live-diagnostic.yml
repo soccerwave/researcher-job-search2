@@ -39,6 +39,47 @@ jobs:
               if re.search(r'\b(name|type|value|data-drupal-selector|id)=',tag,re.I):
                   print("CONTROL=",html.unescape(re.sub(r'\s+',' ',tag))[:500])
           PY
+          echo "=== GLOBAL NEWEST DEPTH PROBE ==="
+          python - <<'PY'
+          import re, html, time, urllib.parse, urllib.request
+          base='https://euraxess.ec.europa.eu/jobs/search'
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+          total_unique=set(); spain_unique=set()
+          for page in range(25):
+              params={
+                  'f[0]':'offer_type:job_offer',
+                  'sort[name]':'created',
+                  'sort[direction]':'DESC',
+                  'page':str(page),
+              }
+              url=base+'?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/html,application/xhtml+xml'})
+              try:
+                  resp=urllib.request.urlopen(req,timeout=30)
+                  raw=resp.read().decode('utf-8','ignore')
+                  status=resp.status
+              except Exception as e:
+                  print(f'DEPTH page={page} ERROR={type(e).__name__}:{e}')
+                  break
+              # Split on teaser cards and inspect each card independently.
+              chunks=re.split(r'id="job-teaser-content"',raw,re.I)[1:]
+              ids=[]; spain=[]; dates=[]
+              for c in chunks:
+                  m=re.search(r'href="[^"]*/jobs/(\d+)[^"]*"',c,re.I)
+                  if not m: continue
+                  jid=m.group(1); ids.append(jid); total_unique.add(jid)
+                  cm=re.search(r'ecl-label[^>]*ecl-label--highlight[^>]*>\s*([^<]+)',c,re.I)
+                  country=html.unescape(cm.group(1)).strip() if cm else ''
+                  dm=re.search(r'Posted on:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})',re.sub(r'<[^>]+>',' ',c),re.I)
+                  if dm: dates.append(dm.group(1))
+                  if country.lower()=='spain':
+                      spain.append(jid); spain_unique.add(jid)
+              print(f'DEPTH page={page} status={status} cards={len(ids)} unique_total={len(total_unique)} spain={len(spain)} spain_unique={len(spain_unique)} dates={dates[:1]}..{dates[-1:] if dates else []}')
+              if spain:
+                  print('DEPTH_SPAIN_IDS=',','.join(spain))
+              time.sleep(0.7)
+          print('DEPTH_FINAL unique_total=',len(total_unique),'spain_unique=',len(spain_unique))
+          PY
           echo "=== POST filter probe ==="
           python - <<'PY'
           import re, html, urllib.parse, urllib.request, http.cookiejar
