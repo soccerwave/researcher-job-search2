@@ -65,7 +65,20 @@ def parse_board_html(html: str, search_query: str = "") -> list[dict]:
         sector = field("Sector")
         entity = field("Entity")
 
-        link = heading.find("a", href=True) or (chosen.find("a", href=True) if chosen else None)
+        # Biocat often exposes two links for one card: the employer/title link and a
+        # Biocat-hosted "Job offer document" attachment. Prefer the direct attachment
+        # because it is the authoritative Full JD and avoids failures on external sites
+        # (TLS issues, generic career pages, download wrappers).
+        links = list(chosen.find_all("a", href=True)) if chosen else []
+        attachment = next(
+            (
+                a for a in links
+                if "/sites/default/files/webform/send_job_offer/" in str(a.get("href") or "")
+                or re.search(r"\.(?:pdf|docx?|odt)(?:$|[?#])", str(a.get("href") or ""), re.I)
+            ),
+            None,
+        )
+        link = attachment or heading.find("a", href=True) or (links[0] if links else None)
         url = urljoin(BASE_URL, link["href"]) if link else BOARD_URL
 
         description = "; ".join(x for x in [f"Entity: {entity}" if entity else "", f"Sector: {sector}" if sector else ""] if x)
@@ -80,10 +93,21 @@ def parse_board_html(html: str, search_query: str = "") -> list[dict]:
             search_query=search_query,
         ).to_dict())
 
-    # De-duplicate parser artefacts by title/company/location.
+    # Prefer URL identity when a specific offer/document URL exists. Biocat can
+    # legitimately publish multiple vacancies with the same title/company/location but
+    # different offer documents; title-only dedup would silently drop one of them.
     dedup = {}
     for job in jobs:
-        key = (job["title"].lower(), job["company"].lower(), job["location"].lower())
+        url = _clean(job.get("url", ""))
+        if url and url != BOARD_URL:
+            key = ("url", url.lower())
+        else:
+            key = (
+                "metadata",
+                job["title"].lower(),
+                job["company"].lower(),
+                job["location"].lower(),
+            )
         dedup.setdefault(key, job)
     return list(dedup.values())
 
