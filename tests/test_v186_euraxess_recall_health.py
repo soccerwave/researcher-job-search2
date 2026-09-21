@@ -48,3 +48,81 @@ def test_euraxess_healthy_empty_feed_is_not_failed(monkeypatch):
 def test_v186_version_and_scoring_engine_unchanged():
     assert production.PRODUCTION_VERSION == "V1.86_EURAXESS_HEALTH_REPORTING_FIX"
     assert production.FROZEN_ENGINE == "V1.36_FINAL_SCORING_CLEANUP"
+
+
+def test_v193_repeated_result_page_marks_coverage_incomplete(monkeypatch):
+    euraxess._FEED_CACHE.clear()
+
+    class Response:
+        def __init__(self, html):
+            self.text = html
+        def raise_for_status(self):
+            return None
+
+    page = """
+    <div><a href="/jobs/123456">Research Project Manager</a>
+    JOB Spain Example University Posted on: 20 September 2026 Work Locations: Spain</div>
+    """
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response(page)
+        def close(self):
+            pass
+
+    monkeypatch.setattr(euraxess, "make_retry_session", lambda **kwargs: Session())
+    cards, diag = euraxess._fetch_mode(
+        "https://example.test", 3, (1, 1), use_spain_facet=False
+    )
+    assert len(cards) == 1
+    assert diag["pagination_repeat_detected"] is True
+    assert diag["repeated_pages"] == [1]
+    assert diag["stop_reason"] == "pagination_repeat"
+    assert diag["coverage_complete"] is False
+    assert "pagination_repeat" in diag["coverage_warning"]
+
+
+def test_v193_unhonored_spain_facet_is_incomplete(monkeypatch):
+    euraxess._FEED_CACHE.clear()
+
+    class Response:
+        text = """
+        <div><a href="/jobs/123456">Researcher in Materials</a>
+        JOB Sweden Example University Posted on: 20 September 2026 Work Locations: Sweden</div>
+        """
+        def raise_for_status(self):
+            return None
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+        def close(self):
+            pass
+
+    monkeypatch.setattr(euraxess, "make_retry_session", lambda **kwargs: Session())
+    cards, diag = euraxess._fetch_mode(
+        "https://example.test", 1, (1, 1), use_spain_facet=True
+    )
+    assert cards == []
+    assert diag["facet_honored"] is False
+    assert diag["coverage_complete"] is False
+    assert "spain_facet_not_honored" in diag["coverage_warning"]
+
+
+def test_v193_live_warning_surfaces_pagination_repeat():
+    diag = {
+        "feed": {
+            "mode": "generic_feed_local_spain_filter",
+            "coverage_complete": False,
+            "page_errors": [],
+            "pagination_repeat_detected": True,
+            "coverage_warning": "EURAXESS coverage incomplete: pagination_repeat_pages=[1]",
+        },
+        "candidate_truncated": 0,
+        "detail_rate_limited": False,
+    }
+    args = SimpleNamespace(history_days=None)
+    warnings = production._warnings_for_source("euraxess", diag, args)
+    assert any("pagination repeated" in w.lower() for w in warnings)
+    assert any("coverage incomplete" in w.lower() for w in warnings)
+    assert production._coverage_complete("euraxess", diag, args) is False
