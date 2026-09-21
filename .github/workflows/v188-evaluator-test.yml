@@ -12,6 +12,8 @@ on:
       - "jobbot/production.py"
       - "sources/euraxess.py"
       - "sources/biocat.py"
+      - "sources/academicpositions.py"
+      - "tests/test_v156_academicpositions.py"
       - "tests/test_v194_biocat_detail_resolution.py"
       - "tests/test_v186_euraxess_recall_health.py"
   workflow_dispatch:
@@ -45,6 +47,7 @@ jobs:
             tests/test_v158_sant_pau.py \
             tests/test_v186_euraxess_recall_health.py \
             tests/test_v194_biocat_detail_resolution.py \
+            tests/test_v156_academicpositions.py \
             tests/test_realworld_calibration.py \
             tests/test_noise_regressions.py \
             tests/test_v116_regulated_trial_experience.py \
