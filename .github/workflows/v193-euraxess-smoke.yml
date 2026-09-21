@@ -1,0 +1,43 @@
+name: V1.93 EURAXESS Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v193-euraxess-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run production-shaped EURAXESS collector
+        run: |
+          python - <<'PY'
+          import json
+          from types import SimpleNamespace
+          from sources import euraxess
+          from jobbot import production
+
+          diag = {}
+          jobs = euraxess.collect(
+              query="taxonomy_scan",
+              pages=8,
+              max_candidates=80,
+              diagnostics=diag,
+          )
+          args = SimpleNamespace(history_days=None)
+          print("JOBS_COLLECTED=", len(jobs))
+          print("COVERAGE_COMPLETE=", production._coverage_complete("euraxess", diag, args))
+          print("WARNINGS=", json.dumps(production._warnings_for_source("euraxess", diag, args), ensure_ascii=False))
+          print("FEED=", json.dumps(diag.get("feed", {}), ensure_ascii=False))
+          print("DETAIL_SUCCESS=", diag.get("detail_success"))
+          print("DETAIL_FAILED=", diag.get("detail_failed"))
+          PY
