@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.92_INSTITUTIONAL_RESEARCH_PM_FIX",
+  "production_version": "V1.93_EURAXESS_PAGINATION_HEALTH_GUARD",
   "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Evaluator recall fix for strong institutional research-management roles only. A research-project-management vacancy with an otherwise unclear scientific topic is promoted only when multiple independent research-administration signals co-occur, such as research-institute context, project/process coordination, competitive calls or grants, institutional accreditation, governance/reporting, or scientific coordination. Generic project-management roles at research employers remain non-promoted. V1.38 mandatory qualification guards, thresholds, weights, collectors, Spain-only geography, Madrid fallback, Sant Pau bounded transport, seen-state semantics, reporting and Telegram are unchanged.",
+  "scope": "EURAXESS collector health guard only. Repeated result pages, unhonored Spain facets and live page errors now mark coverage incomplete instead of reporting a false healthy zero. Generic fallback attempts are preferred when they provide healthier locally validated Spain coverage. Evaluator logic, scoring thresholds, weights, Spain-only geography, Madrid fallback, Sant Pau transport bounds, seen-state semantics, reporting and other collectors are unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.91_MANDATORY_QUALIFICATION_FIX"
+  "previous_production_version": "V1.92_INSTITUTIONAL_RESEARCH_PM_FIX"
 }
