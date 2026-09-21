@@ -17,6 +17,10 @@ BOARD_URLS = (
     ("international_en", "https://academicpositions.com/jobs/country/spain"),
     ("spain_es", "https://academicpositions.es/jobs/country/spain"),
 )
+# The international Spain country board is the authoritative listing. The .es site is
+# a localized mirror: useful as supplemental recall when reachable, but its transport
+# failure must not downgrade a complete authoritative board.
+REQUIRED_BOARD_NAMES = {"international_en"}
 AD_PATH_RE = re.compile(r"^/ad/[^?#]+/(\d+)(?:[/?#]|$)", re.I)
 COUNT_RE = re.compile(r"\b(\d+)\s+(?:jobs?|trabajos?)\s+(?:in|en)\s+(?:spain|españa)\b", re.I)
 CLOSED_RE = re.compile(
@@ -295,7 +299,10 @@ def collect(
         "board_urls": {name: url for name, url in board_urls},
         "boards_requested": len(board_urls),
         "boards_fetched": 0,
+        "required_boards_requested": sum(1 for name, _ in board_urls if name in REQUIRED_BOARD_NAMES),
+        "required_boards_fetched": 0,
         "board_errors": [],
+        "optional_board_errors": [],
         "board_declared_counts": {},
         "board_parsed_job_counts": {},
         "raw_job_links": 0,
@@ -325,6 +332,8 @@ def collect(
                     raise RuntimeError("AcademicPositions access challenge detected")
                 jobs, declared = parse_listing(r.text, r.url)
                 diag["boards_fetched"] += 1
+                if board_name in REQUIRED_BOARD_NAMES:
+                    diag["required_boards_fetched"] += 1
                 diag["board_declared_counts"][board_name] = declared
                 diag["board_parsed_job_counts"][board_name] = len(jobs)
                 diag["raw_job_links"] += len(jobs)
@@ -349,7 +358,11 @@ def collect(
                         if len(item.get("title", "")) > len(current.get("title", "")):
                             current["title"] = item["title"]
             except Exception as exc:
-                diag["board_errors"].append({"board": board_name, "url": board_url, "error": f"{type(exc).__name__}: {exc}"})
+                error = {"board": board_name, "url": board_url, "error": f"{type(exc).__name__}: {exc}"}
+                if board_name in REQUIRED_BOARD_NAMES:
+                    diag["board_errors"].append(error)
+                else:
+                    diag["optional_board_errors"].append(error)
 
         candidates = [by_id[job_id] for job_id in order]
         diag["unique_jobs"] = len(candidates)
@@ -430,19 +443,30 @@ def collect(
             rows.append(row)
 
         diag["detail_status_counts"] = dict(status_counter)
-        all_boards_clean = diag["boards_fetched"] == diag["boards_requested"] and not diag["board_errors"]
-        counts_consistent = True
-        for board_name, declared in diag["board_declared_counts"].items():
+        required_boards_clean = (
+            diag["required_boards_fetched"] == diag["required_boards_requested"]
+            and not diag["board_errors"]
+        )
+        required_counts_consistent = True
+        for board_name in REQUIRED_BOARD_NAMES:
+            if board_name not in diag["board_declared_counts"]:
+                continue
+            declared = diag["board_declared_counts"].get(board_name)
             parsed = int(diag["board_parsed_job_counts"].get(board_name, 0) or 0)
             if declared is not None and parsed < declared:
-                counts_consistent = False
-        diag["coverage_complete"] = bool(all_boards_clean and counts_consistent and diag["truncated"] == 0)
+                required_counts_consistent = False
+
+        diag["coverage_complete"] = bool(
+            required_boards_clean
+            and required_counts_consistent
+            and diag["truncated"] == 0
+        )
         if not diag["coverage_complete"]:
             reasons = []
             if diag["board_errors"]:
-                reasons.append("one or more public country boards failed")
-            if not counts_consistent:
-                reasons.append("parsed job count was lower than a board-declared count")
+                reasons.append("authoritative Spain country board failed")
+            if not required_counts_consistent:
+                reasons.append("authoritative parsed job count was lower than its declared count")
             if diag["truncated"]:
                 reasons.append(f"candidate set truncated by {diag['truncated']}")
             diag["coverage_warning"] = "AcademicPositions coverage incomplete: " + "; ".join(reasons or ["unknown reason"])
