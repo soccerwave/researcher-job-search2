@@ -10,6 +10,8 @@ on:
       - "tests/test_v188_evaluator_calibration.py"
       - "SCORING_FREEZE_V138.json"
       - "jobbot/production.py"
+      - "sources/euraxess.py"
+      - "tests/test_v186_euraxess_recall_health.py"
   workflow_dispatch:
 
 permissions:
