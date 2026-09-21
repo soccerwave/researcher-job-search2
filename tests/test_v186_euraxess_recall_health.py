@@ -45,9 +45,9 @@ def test_euraxess_healthy_empty_feed_is_not_failed(monkeypatch):
     assert diag["page_errors"] == []
 
 
-def test_v186_version_and_scoring_engine_unchanged():
-    assert production.PRODUCTION_VERSION == "V1.86_EURAXESS_HEALTH_REPORTING_FIX"
-    assert production.FROZEN_ENGINE == "V1.36_FINAL_SCORING_CLEANUP"
+def test_v193_version_and_scoring_engine_frozen():
+    assert production.PRODUCTION_VERSION == "V1.93_EURAXESS_PAGINATION_HEALTH_GUARD"
+    assert production.FROZEN_ENGINE == "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL"
 
 
 def test_v193_repeated_result_page_marks_coverage_incomplete(monkeypatch):
