@@ -9,7 +9,7 @@ from typing import Callable
 from sources import academicpositions, ats_watchlist, biocat, bist, csic_institutes, euraxess, fbg_ub, fisabio, fps_andalucia, gencat_research, hospital_del_mar, idibell, iislafe, ikerbasque_calls, infojobs_spain, institutions, isciii_employment, linkedin_mads, madrid_idi_history as madrid_idi, sant_pau_research, idibaps, upc_talenthub
 
 FROZEN_ENGINE = "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL"
-PRODUCTION_VERSION = "V1.92_INSTITUTIONAL_RESEARCH_PM_FIX"
+PRODUCTION_VERSION = "V1.93_EURAXESS_PAGINATION_HEALTH_GUARD"
 FREEZE_MANIFEST = "SCORING_FREEZE_V139.json"
 SOURCE_ORDER = ("linkedin", "infojobs", "academicpositions", "ikerbasque", "atswatch", "santpau", "fbg", "biocat", "gencat", "csic", "isciii", "idibaps", "upc", "idibell", "hospitaldelmar", "euraxess", "bist", "institutions", "madrid", "fisabio", "fps", "iislafe")
 SOURCE_LABELS = {
@@ -210,7 +210,9 @@ def _coverage_complete(key: str, diag: dict, args) -> bool:
         feed = diag.get("feed") or {}
         if str(feed.get("mode") or "").lower() == "failed":
             return False
-        if feed.get("page_errors"):
+        if feed.get("page_errors") or feed.get("pagination_repeat_detected"):
+            return False
+        if feed.get("facet_honored") is False and feed.get("mode") == "official_spain_facet":
             return False
         if int(diag.get("candidate_truncated", 0) or 0) > 0:
             return False
@@ -260,10 +262,16 @@ def _warnings_for_source(key: str, diag: dict, args) -> list[str]:
         feed = diag.get("feed") or {}
         if feed.get("page_errors"):
             warnings.append(f"EURAXESS feed page errors: {len(feed.get('page_errors') or [])}")
+        if feed.get("pagination_repeat_detected"):
+            warnings.append(
+                "EURAXESS pagination repeated a previously seen result page; feed coverage is incomplete"
+            )
+        if feed.get("facet_honored") is False and feed.get("mode") == "official_spain_facet":
+            warnings.append("EURAXESS Spain facet was not honored by the portal")
         if int(diag.get("candidate_truncated", 0) or 0) > 0:
             warnings.append(f"EURAXESS candidate set truncated: {int(diag.get('candidate_truncated', 0) or 0)} candidate(s) omitted")
-        if args.history_days and not feed.get("coverage_complete", False):
-            warnings.append(str(feed.get("coverage_warning") or "EURAXESS historical feed coverage incomplete"))
+        if not feed.get("coverage_complete", False) and feed.get("coverage_warning"):
+            warnings.append(str(feed.get("coverage_warning")))
         if diag.get("detail_rate_limited"):
             warnings.append("EURAXESS detail resolution was rate limited; persistent cache permits a resumable rerun")
     elif key == "gencat" and truncated:
