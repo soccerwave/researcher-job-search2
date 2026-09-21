@@ -42,6 +42,32 @@ jobs:
               if re.search(r'\b(name|type|value|data-drupal-selector|id)=',tag,re.I):
                   print("CONTROL=",html.unescape(re.sub(r'\s+',' ',tag))[:500])
           PY
+          echo "=== pagination parameter interaction probe ==="
+          python - <<'PY'
+          import requests
+          from sources.euraxess import parse_search_html
+          base='https://euraxess.ec.europa.eu/jobs/search'
+          H={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36'}
+          cases={
+            'plain':{},
+            'offer':{'f[0]':'offer_type:job_offer'},
+            'sort':{'sort[name]':'created','sort[direction]':'DESC'},
+            'offer_sort':{'f[0]':'offer_type:job_offer','sort[name]':'created','sort[direction]':'DESC'},
+          }
+          sess=requests.Session()
+          for name,basep in cases.items():
+              print('CASE',name)
+              seen=set()
+              for page in range(4):
+                  p=dict(basep); p['page']=str(page)
+                  r=sess.get(base,params=p,headers=H,timeout=(10,30))
+                  jobs=parse_search_html(r.text) if r.status_code==200 else []
+                  ids=[j.get('id') for j in jobs]
+                  print('CASE_PAGE',name,page,'status',r.status_code,'ids',ids,'new',len(set(ids)-seen))
+                  seen.update(ids)
+                  if r.status_code!=200: break
+              print('CASE_UNIQUE',name,len(seen))
+          PY
           echo "=== pagination contract ==="
           python - <<'PY'
           import re, html
