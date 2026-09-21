@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.94_BIOCAT_OFFER_DOCUMENT_RESOLUTION",
+  "production_version": "V1.95_ACADEMICPOSITIONS_OPTIONAL_MIRROR",
   "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Biocat collector detail-resolution fix only. Biocat-hosted direct job-offer documents are preferred over external title links, and distinct vacancies sharing title/company/location are preserved when they have different offer-document URLs. V1.93 EURAXESS health guards remain active. Evaluator logic, scoring thresholds, weights, Spain-only geography, Madrid fallback, Sant Pau transport bounds, seen-state semantics and other collectors are unchanged.",
+  "scope": "AcademicPositions collector coverage semantics only. The international Spain country board is authoritative; the localized .es board remains a supplemental mirror when reachable, but a mirror-only 403 no longer downgrades a complete authoritative listing to PARTIAL. Primary-board failures, declared-count mismatches and truncation remain incomplete coverage. V1.93 EURAXESS guards and V1.94 Biocat document resolution remain active. Scoring is unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.93_EURAXESS_PAGINATION_HEALTH_GUARD"
+  "previous_production_version": "V1.94_BIOCAT_OFFER_DOCUMENT_RESOLUTION"
 }
