@@ -26,34 +26,28 @@ jobs:
           grep -Eio '<(input|select)[^>]+(name|id)="[^"]+"[^>]*>' /tmp/search.html | grep -Ei 'country|field|keyword|search|filter' | head -100 || true
           echo "=== parsed country option ==="
           python - <<'PY'
-          from bs4 import BeautifulSoup
-          html=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
-          soup=BeautifulSoup(html,'html.parser')
-          sel=soup.find('select', attrs={'name':'job_country[]'})
-          print("SELECT_FOUND=", bool(sel))
-          if sel:
-              for o in sel.find_all('option'):
-                  if 'spain' in o.get_text(" ",strip=True).lower():
-                      print("SPAIN_OPTION_VALUE=", repr(o.get('value')))
-                      print("SPAIN_OPTION_TEXT=", repr(o.get_text(" ",strip=True)))
-          PY
-          SPAIN_VALUE=$(python - <<'PY'
-          from bs4 import BeautifulSoup
-          import urllib.parse
-          html=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
-          soup=BeautifulSoup(html,'html.parser')
-          sel=soup.find('select', attrs={'name':'job_country[]'})
+          import re, html
+          raw=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
+          m=re.search(r'<select[^>]+name="job_country(?:&#x5B;&#x5D;|\[\])"[^>]*>([\s\S]*?)</select>', raw, re.I)
+          print("SELECT_FOUND=", bool(m))
           val=''
-          if sel:
-              for o in sel.find_all('option'):
-                  if 'spain' in o.get_text(" ",strip=True).lower():
-                      val=o.get('value') or ''
-                      break
-          print(urllib.parse.quote(val,safe=''))
+          if m:
+              for opt in re.finditer(r'<option([^>]*)>([\s\S]*?)</option>', m.group(1), re.I):
+                  attrs=opt.group(1)
+                  text=re.sub(r'<[^>]+>',' ',opt.group(2))
+                  text=html.unescape(re.sub(r'\s+',' ',text)).strip()
+                  if text.lower()=='spain':
+                      vm=re.search(r'value="([^"]*)"', attrs, re.I)
+                      val=html.unescape(vm.group(1)) if vm else ''
+                      print("SPAIN_OPTION_VALUE=", repr(val))
+                      print("SPAIN_OPTION_TEXT=", repr(text))
+          open('/tmp/spain_value.txt','w').write(val)
           PY
-          )
-          echo "SPAIN_VALUE_ENCODED=$SPAIN_VALUE"
-          if [ -n "$SPAIN_VALUE" ]; then
+          SPAIN_RAW=$(cat /tmp/spain_value.txt)
+          echo "SPAIN_RAW=$SPAIN_RAW"
+          if [ -n "$SPAIN_RAW" ]; then
+            SPAIN_VALUE=$(python -c 'import urllib.parse; print(urllib.parse.quote(open("/tmp/spain_value.txt").read(), safe=""))')
+            echo "SPAIN_VALUE_ENCODED=$SPAIN_VALUE"
             curl -L -sS -A "$UA" "https://euraxess.ec.europa.eu/jobs/search?job_country%5B%5D=$SPAIN_VALUE" -o /tmp/newfilter.html
             echo "NEWFILTER_SPAIN_COUNT=$(grep -oi '>Spain<' /tmp/newfilter.html | wc -l || true)"
             echo "NEWFILTER_SWEDEN_COUNT=$(grep -oi '>Sweden<' /tmp/newfilter.html | wc -l || true)"
