@@ -39,6 +39,47 @@ jobs:
               if re.search(r'\b(name|type|value|data-drupal-selector|id)=',tag,re.I):
                   print("CONTROL=",html.unescape(re.sub(r'\s+',' ',tag))[:500])
           PY
+          echo "=== POST filter probe ==="
+          python - <<'PY'
+          import re, html, urllib.parse, urllib.request, http.cookiejar
+          base='https://euraxess.ec.europa.eu/jobs/search'
+          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+          cj=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+          req=urllib.request.Request(base,headers={'User-Agent':ua})
+          raw=opener.open(req,timeout=30).read().decode('utf-8','ignore')
+          def hidden(name):
+              m=re.search(r'name="'+re.escape(name)+r'" value="([^"]*)"',raw,re.I)
+              return html.unescape(m.group(1)) if m else ''
+          payload=[
+              ('job_country[]','788'),
+              ('form_build_id',hidden('form_build_id')),
+              ('form_id','oe_list_pages_facets_form'),
+              ('op','Apply filters'),
+          ]
+          data=urllib.parse.urlencode(payload).encode()
+          req=urllib.request.Request(base,data=data,headers={
+              'User-Agent':ua,
+              'Content-Type':'application/x-www-form-urlencoded',
+              'Referer':base,
+          })
+          resp=opener.open(req,timeout=30)
+          body=resp.read().decode('utf-8','ignore')
+          open('/tmp/postfilter.html','w').write(body)
+          print('POST_FINAL_URL=',resp.geturl())
+          print('POST_STATUS=',resp.status)
+          print('POST_COOKIE_COUNT=',len(list(cj)))
+          for pat in [r'Showing results[^<]{0,80}',r'Search results[^<]{0,80}']:
+              m=re.search(pat,body,re.I)
+              if m: print('POST_SUMMARY=',re.sub(r'\s+',' ',m.group(0)))
+          print('POST_SPAIN_COUNT=',len(re.findall(r'>\s*Spain\s*<',body,re.I)))
+          print('POST_SWEDEN_COUNT=',len(re.findall(r'>\s*Sweden\s*<',body,re.I)))
+          cards=re.findall(r'<a[^>]+href="([^"]*/jobs/\d+[^"]*)"[^>]*>([\s\S]*?)</a>',body,re.I)
+          print('POST_JOB_LINKS=',len(cards))
+          for href,title in cards[:12]:
+              txt=html.unescape(re.sub(r'<[^>]+>',' ',title))
+              print('POST_JOB=',href,re.sub(r'\s+',' ',txt).strip()[:120])
+          PY
           echo "=== parsed country option ==="
           python - <<'PY'
           import re, html
