@@ -24,6 +24,21 @@ jobs:
           grep -Eio '.{0,180}(job_country|country[^<]{0,80}|Spain|España).{0,240}' /tmp/search.html | head -80 || true
           echo "=== form control names ==="
           grep -Eio '<(input|select)[^>]+(name|id)="[^"]+"[^>]*>' /tmp/search.html | grep -Ei 'country|field|keyword|search|filter' | head -100 || true
+          echo "=== search form contract ==="
+          python - <<'PY'
+          import re, html
+          raw=open('/tmp/search.html',encoding='utf-8',errors='ignore').read()
+          pos=raw.find('name="job_country')
+          start=raw.rfind('<form',0,pos)
+          end=raw.find('</form>',pos)
+          form=raw[start:end+7] if start>=0 and end>=0 else ''
+          mt=re.search(r'<form([^>]*)>',form,re.I)
+          print("FORM_TAG=", html.unescape(mt.group(0)) if mt else "NONE")
+          for m in re.finditer(r'<(?:input|select|button)([^>]*)>',form,re.I):
+              tag=m.group(0)
+              if re.search(r'\b(name|type|value|data-drupal-selector|id)=',tag,re.I):
+                  print("CONTROL=",html.unescape(re.sub(r'\s+',' ',tag))[:500])
+          PY
           echo "=== parsed country option ==="
           python - <<'PY'
           import re, html
