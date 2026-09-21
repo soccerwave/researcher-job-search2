@@ -1,0 +1,43 @@
+name: V1.95 AcademicPositions Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v195-academicpositions-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run AcademicPositions collector
+        run: |
+          python - <<'PY'
+          import json
+          from types import SimpleNamespace
+          from sources import academicpositions
+          from jobbot import production
+
+          diag={}
+          rows=academicpositions.collect(diagnostics=diag)
+          args=SimpleNamespace(history_days=None)
+          print("ROWS=",len(rows))
+          print("BOARDS_FETCHED=",diag.get("boards_fetched"))
+          print("REQUIRED_FETCHED=",diag.get("required_boards_fetched"))
+          print("DECLARED=",json.dumps(diag.get("board_declared_counts"),ensure_ascii=False))
+          print("PARSED=",json.dumps(diag.get("board_parsed_job_counts"),ensure_ascii=False))
+          print("REQUIRED_ERRORS=",json.dumps(diag.get("board_errors"),ensure_ascii=False))
+          print("OPTIONAL_ERRORS=",json.dumps(diag.get("optional_board_errors"),ensure_ascii=False))
+          print("DETAIL_SUCCESS=",diag.get("detail_success"))
+          print("DETAIL_FAILED=",diag.get("detail_failed"))
+          print("COVERAGE_COMPLETE=",production._coverage_complete("academicpositions",diag,args))
+          print("WARNINGS=",json.dumps(production._warnings_for_source("academicpositions",diag,args),ensure_ascii=False))
+          PY
