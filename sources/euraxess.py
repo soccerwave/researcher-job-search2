@@ -374,6 +374,9 @@ def _fetch_mode(
     newest_seen: date | None = None
     oldest_seen: date | None = None
     stop_reason = "page_limit"
+    page_fingerprints: set[tuple[str, ...]] = set()
+    pagination_repeat_detected = False
+    repeated_pages: list[int] = []
 
     try:
         for page in range(max(1, pages)):
@@ -387,13 +390,30 @@ def _fetch_mode(
                 r.raise_for_status()
                 page_jobs = parse_search_html(r.text)
                 pages_fetched += 1
-                parsed_total += len(page_jobs)
                 if not page_jobs:
                     # A later empty page means we likely reached the end; an empty first
                     # page is still recorded so another base/mode can be attempted.
                     if page > 0:
                         break
                     continue
+
+                # A transient EURAXESS/CDN regression can return page 1 repeatedly for
+                # different ?page=N URLs. Count transport as fetched, but do not count or
+                # trust duplicate card pages as coverage.
+                fingerprint = tuple(sorted(
+                    str(job.get("id") or job.get("url") or "")
+                    for job in page_jobs
+                    if job.get("id") or job.get("url")
+                ))
+                if fingerprint and fingerprint in page_fingerprints:
+                    pagination_repeat_detected = True
+                    repeated_pages.append(page)
+                    stop_reason = "pagination_repeat"
+                    break
+                if fingerprint:
+                    page_fingerprints.add(fingerprint)
+
+                parsed_total += len(page_jobs)
                 page_dates: list[date] = []
                 for job in page_jobs:
                     posted = _parse_posted_date(job.get("date"))
@@ -436,17 +456,52 @@ def _fetch_mode(
     cards = list(all_cards.values())
     spain_cards = [j for j in cards if _is_spain(j)]
     ratio = (len(spain_cards) / len(cards)) if cards else 0.0
-    coverage_complete = (
-        cutoff_date is None
-        or stop_reason == "cutoff_reached"
-        or (oldest_seen is not None and oldest_seen <= cutoff_date)
+    # The Spain facet is advisory only. If it returns mostly non-Spain cards,
+    # treat it as not honored and force the generic-feed fallback.
+    facet_honored = (
+        not use_spain_facet
+        or parsed_total == 0
+        or ratio >= 0.75
     )
+
+    if cutoff_date is None:
+        coverage_complete = (
+            not page_errors
+            and not pagination_repeat_detected
+            and facet_honored
+            and stop_reason in {"page_limit", "cutoff_reached"}
+        )
+    else:
+        historical_window_reached = (
+            stop_reason == "cutoff_reached"
+            or (oldest_seen is not None and oldest_seen <= cutoff_date)
+        )
+        coverage_complete = (
+            historical_window_reached
+            and not page_errors
+            and not pagination_repeat_detected
+            and facet_honored
+        )
+
     coverage_warning = ""
-    if cutoff_date is not None and not coverage_complete:
-        coverage_warning = (
-            f"Historical coverage incomplete: cutoff={cutoff_date.isoformat()}, "
-            f"oldest_seen={oldest_seen.isoformat() if oldest_seen else 'unknown'}, "
-            f"stop_reason={stop_reason}"
+    if not coverage_complete:
+        reasons: list[str] = []
+        if page_errors:
+            reasons.append(f"page_errors={len(page_errors)}")
+        if pagination_repeat_detected:
+            reasons.append(f"pagination_repeat_pages={repeated_pages}")
+        if use_spain_facet and not facet_honored:
+            reasons.append(f"spain_facet_not_honored ratio={ratio:.3f}")
+        if cutoff_date is not None and not (
+            stop_reason == "cutoff_reached"
+            or (oldest_seen is not None and oldest_seen <= cutoff_date)
+        ):
+            reasons.append(
+                f"cutoff_not_reached cutoff={cutoff_date.isoformat()} "
+                f"oldest_seen={oldest_seen.isoformat() if oldest_seen else 'unknown'}"
+            )
+        coverage_warning = "EURAXESS coverage incomplete: " + (
+            "; ".join(reasons) if reasons else f"stop_reason={stop_reason}"
         )
     return spain_cards, {
         "base": base,
@@ -464,6 +519,9 @@ def _fetch_mode(
         "dated_cards_seen": dated_cards_seen,
         "undated_cards_seen": undated_cards_seen,
         "stop_reason": stop_reason,
+        "pagination_repeat_detected": pagination_repeat_detected,
+        "repeated_pages": repeated_pages,
+        "facet_honored": facet_honored,
         "coverage_complete": coverage_complete,
         "coverage_warning": coverage_warning,
     }
@@ -512,13 +570,30 @@ def _get_spain_feed(
     # If the facet was blocked/ignored or yielded no Spain cards, fall back to a
     # generic public feed and apply the Spain filter locally. This sacrifices coverage
     # but avoids silently returning irrelevant countries.
-    if not best_cards or best_diag.get("spain_ratio", 0) < 0.75:
+    if not best_cards or best_diag.get("spain_ratio", 0) < 0.75 or not best_diag.get("coverage_complete", False):
         for base in ["https://euraxess.ec.europa.eu", "https://www.euraxess.es"]:
-            cards, diag = _fetch_mode(base, pages, timeout, use_spain_facet=False, cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0)
+            cards, diag = _fetch_mode(
+                base, pages, timeout, use_spain_facet=False,
+                cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0
+            )
             attempts.append(diag)
-            if len(cards) > len(best_cards):
+
+            # Prefer complete generic coverage. If every attempt is partial, retain
+            # the one with the most locally validated Spain cards, then more unique
+            # cards, so recall is preserved without claiming full coverage.
+            current_key = (
+                1 if best_diag.get("coverage_complete", False) else 0,
+                len(best_cards),
+                int(best_diag.get("unique_cards", 0) or 0),
+            )
+            candidate_key = (
+                1 if diag.get("coverage_complete", False) else 0,
+                len(cards),
+                int(diag.get("unique_cards", 0) or 0),
+            )
+            if candidate_key > current_key:
                 best_cards, best_diag = cards, diag
-            if cards:
+            if cards and diag.get("coverage_complete", False):
                 break
 
     # A legitimately empty Spain result is not a transport failure. If at least
@@ -530,7 +605,9 @@ def _get_spain_feed(
             best_diag = max(
                 fetched_attempts,
                 key=lambda a: (
-                    0 if a.get("page_errors") else 1,
+                    1 if a.get("coverage_complete", False) else 0,
+                    1 if a.get("mode") == "generic_feed_local_spain_filter" else 0,
+                    int(a.get("unique_cards", 0) or 0),
                     int(a.get("pages_fetched", 0) or 0),
                     int(a.get("parsed_cards", 0) or 0),
                 ),
