@@ -108,3 +108,41 @@ def test_v156_source_is_registered_and_scoring_freeze_passes():
     assert _collector_map()["academicpositions"] is academicpositions.collect
     root = Path(__file__).resolve().parents[1]
     assert verify_scoring_freeze(root)["ok"] is True
+
+
+class OptionalMirrorFailureSession(FakeSession):
+    def get(self, url, **kwargs):
+        if url == "https://academicpositions.es/jobs/country/spain":
+            raise RuntimeError("HTTP 403")
+        return super().get(url, **kwargs)
+
+
+def test_v195_optional_spanish_mirror_failure_does_not_downgrade_complete_primary_board():
+    diag = {}
+    rows = academicpositions.collect(diagnostics=diag, session=OptionalMirrorFailureSession())
+    assert len(rows) == 2
+    assert diag["required_boards_requested"] == 1
+    assert diag["required_boards_fetched"] == 1
+    assert diag["board_errors"] == []
+    assert len(diag["optional_board_errors"]) == 1
+    assert diag["board_declared_counts"]["international_en"] == 2
+    assert diag["board_parsed_job_counts"]["international_en"] == 2
+    assert diag["coverage_complete"] is True
+    assert diag["coverage_warning"] == ""
+
+
+class PrimaryFailureMirrorHealthySession(FakeSession):
+    def get(self, url, **kwargs):
+        if url == "https://academicpositions.com/jobs/country/spain":
+            raise RuntimeError("HTTP 503")
+        return super().get(url, **kwargs)
+
+
+def test_v195_primary_board_failure_remains_incomplete_even_if_optional_mirror_works():
+    diag = {}
+    rows = academicpositions.collect(diagnostics=diag, session=PrimaryFailureMirrorHealthySession())
+    assert len(rows) == 3
+    assert diag["required_boards_fetched"] == 0
+    assert len(diag["board_errors"]) == 1
+    assert diag["coverage_complete"] is False
+    assert "authoritative Spain country board failed" in diag["coverage_warning"]
