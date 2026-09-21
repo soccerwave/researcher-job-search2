@@ -1,0 +1,49 @@
+name: V1.94 Biocat Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v194-biocat-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run Biocat collector
+        run: |
+          python - <<'PY'
+          import json
+          from sources import biocat
+          diag={}
+          jobs=biocat.collect(diagnostics=diag)
+          failures=[
+              {
+                  "title":j.get("title"),
+                  "url":j.get("url"),
+                  "status":j.get("detail_status"),
+              }
+              for j in jobs
+              if not j.get("full_detail") or j.get("detail_status") not in {
+                  "OK_HTML","OK_PDF","OK_PDF_ATTACHMENT","OK_ATTACHMENT","OK","CACHE"
+              }
+          ]
+          iris=[
+              {"title":j.get("title"),"url":j.get("url"),"status":j.get("detail_status")}
+              for j in jobs if "IRIS-CC" in (j.get("title") or "")
+          ]
+          print("PARSED_JOBS=",diag.get("parsed_jobs"))
+          print("DETAIL_SUCCESS=",diag.get("detail_success"))
+          print("DETAIL_FAILED=",diag.get("detail_failed"))
+          print("IRIS_COUNT=",len(iris))
+          print("IRIS=",json.dumps(iris,ensure_ascii=False))
+          print("FAILURES=",json.dumps(failures,ensure_ascii=False))
+          PY
