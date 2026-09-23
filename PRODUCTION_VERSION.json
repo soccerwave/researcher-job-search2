@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.95_ACADEMICPOSITIONS_OPTIONAL_MIRROR",
+  "production_version": "V1.96_FPS_OPEN_DATA_API",
   "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "AcademicPositions collector coverage semantics only. The international Spain country board is authoritative; the localized .es board remains a supplemental mirror when reachable, but a mirror-only 403 no longer downgrades a complete authoritative listing to PARTIAL. Primary-board failures, declared-count mismatches and truncation remain incomplete coverage. V1.93 EURAXESS guards and V1.94 Biocat document resolution remain active. Scoring is unchanged.",
+  "scope": "FPS collector transport replacement only. Production now uses the official Junta de Andalucía Open Data job-offering-public-sector API with the FPS organism slug and local deadline filtering, replacing the failing HTML board transport. Full JD fields are assembled from official API data; stale En curso records with expired deadlines are excluded. V1.93 EURAXESS, V1.94 Biocat and V1.95 AcademicPositions fixes remain active. Scoring is unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.94_BIOCAT_OFFER_DOCUMENT_RESOLUTION"
+  "previous_production_version": "V1.95_ACADEMICPOSITIONS_OPTIONAL_MIRROR"
 }
