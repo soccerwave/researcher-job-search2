@@ -1,0 +1,46 @@
+name: FPS Open Data Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fps-open-data-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Junta open data API
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://datos.juntadeandalucia.es/api/v0/job-offering-public-sector'
+          echo '=== OpenAPI ==='
+          curl -L -sS --connect-timeout 10 --max-time 30 -o /tmp/openapi.json -w 'HTTP=%{http_code} CONNECT=%{time_connect} TOTAL=%{time_total} IP=%{remote_ip}\n' "$API/openapi.json"
+          echo "OPENAPI_BYTES=$(wc -c </tmp/openapi.json)"
+          echo '=== options organization ==='
+          curl -L -sS --connect-timeout 10 --max-time 30 "$API/option-values/organization" -o /tmp/org.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/org.json'))
+          print(type(x).__name__)
+          print(json.dumps(x,ensure_ascii=False)[:5000])
+          PY
+          echo '=== search FPS candidates ==='
+          python - <<'PY'
+          import json, urllib.parse, urllib.request
+          base='https://datos.juntadeandalucia.es/api/v0/job-offering-public-sector/search'
+          org=json.load(open('/tmp/org.json'))
+          vals=[]
+          if isinstance(org,dict):
+              for k,v in org.items():
+                  if isinstance(v,list): vals += v
+          elif isinstance(org,list):
+              vals=org
+          print('ORG_VALUES_SAMPLE=', vals[:20])
+          # print FPS-like values only
+          print('FPS_VALUES=', [v for v in vals if 'progreso' in str(v).lower() or 'fps' in str(v).lower()])
+          PY
