@@ -71,9 +71,31 @@ jobs:
           print('STATUS=',r.status_code)
           print('URL=',r.url)
           print('BYTES=',len(r.content))
-          r.raise_for_status()
-          x=r.json()
+          print('BODY=',r.text[:1000])
+          if r.status_code < 400:
+              x=r.json()
+          else:
+              x={}
           print('TYPE=',type(x).__name__)
           print('TOP_KEYS=',list(x) if isinstance(x,dict) else None)
           print('JSON_SAMPLE=',json.dumps(x,ensure_ascii=False)[:12000])
+          PY
+
+      - name: Download full official dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://datos.juntadeandalucia.es/api/v0/job-offering-public-sector/all?format=json'
+          curl -L -sS --connect-timeout 10 --max-time 60 -o /tmp/all.json -w 'HTTP=%{http_code} TOTAL=%{time_total} BYTES=%{size_download} FINAL=%{url_effective}\n' "$URL"
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/all.json'))
+          print('TYPE=',type(x).__name__)
+          print('TOP_KEYS=',list(x)[:20] if isinstance(x,dict) else None)
+          rows=x.get('result',x) if isinstance(x,dict) else x
+          print('ROWS=',len(rows) if isinstance(rows,list) else 'NA')
+          if isinstance(rows,list):
+              fps=[r for r in rows if 'progreso y salud' in str(r.get('organism','')).lower()]
+              print('FPS_ROWS=',len(fps))
+              print('FPS_SAMPLE=',json.dumps(fps[-3:] if fps else [],ensure_ascii=False)[:10000])
           PY
