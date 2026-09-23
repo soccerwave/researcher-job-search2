@@ -1,0 +1,42 @@
+name: V1.96 FPS Open Data Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v196-fps-open-data-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pypdf pytest
+      - name: Run FPS regressions
+        run: pytest -q tests/test_v134_fps_holdout.py
+      - name: Run live FPS collector
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from sources import fps_andalucia
+          diag={}
+          rows=fps_andalucia.collect(diagnostics=diag)
+          print("JOBS=",len(rows))
+          print("DIAG=",json.dumps(diag,ensure_ascii=False))
+          print("TITLES=",json.dumps([r.get("title") for r in rows],ensure_ascii=False))
+          print("DEADLINES=",json.dumps([r.get("application_window_end") for r in rows],ensure_ascii=False))
+          print("DETAIL_STATUSES=",json.dumps([r.get("detail_status") for r in rows],ensure_ascii=False))
+          assert rows, "FPS API returned no current jobs"
+          assert diag.get("coverage_complete") is True, diag
+          assert diag.get("detail_failed")==0, diag
+          assert all(r.get("detail_status")=="OK_API" for r in rows)
+          assert all(r.get("full_detail") for r in rows)
+          PY
