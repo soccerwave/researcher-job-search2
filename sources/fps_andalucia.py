@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -24,6 +25,13 @@ BOARD_URL = (
     "&field_ofem_tipo_convocatoria_value=All&field_ofem_titulacion_esp_value="
     "&field_ofem_titulacion_oficial_value=All&items_per_page=50"
     "&sort_by=field_ofem_fecha_ini_value"
+)
+
+OPEN_DATA_SEARCH_URL = "https://datos.juntadeandalucia.es/api/v0/job-offering-public-sector/search"
+FPS_ORGANISM_SLUG = "saludyfamilias_adscritos_fps2"
+DETAIL_URL_TEMPLATE = (
+    "https://www.juntadeandalucia.es/organismos/fps/estructura/transparencia/"
+    "empleo-publico/ofertas-empleo/detalle/{id}.html"
 )
 
 DETAIL_RE = re.compile(r"/ofertas-empleo/detalle/(\d+)\.html(?:[/?#]|$)", re.I)
@@ -132,27 +140,114 @@ def _enrich_metadata_from_detail(job: dict) -> None:
             job["location"] = f"{location}, Spain" if "spain" not in location.lower() else location
 
 
+def _html_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return _clean(BeautifulSoup(str(value), "html.parser").get_text(" ", strip=True))
+
+
+def _parse_api_date(value: Any) -> date | None:
+    text = _clean(value)
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def _api_location(row: dict) -> str:
+    parts: list[str] = []
+    provinces: list[str] = []
+    for loc in row.get("job_location") or []:
+        locality = _clean((loc or {}).get("locality"))
+        if locality and locality not in parts:
+            parts.append(locality)
+        for p in (loc or {}).get("field_lugar_provincia") or []:
+            province = _clean((p or {}).get("provinces"))
+            if province and province not in provinces:
+                provinces.append(province)
+    label = ", ".join(parts or provinces)
+    if provinces and parts:
+        extra = [p for p in provinces if p not in label]
+        if extra:
+            label = f"{label} ({', '.join(extra)})"
+    return f"{label}, Spain" if label else DEFAULT_LOCATION
+
+
+def _api_full_detail(row: dict) -> str:
+    fields = [
+        ("Oferta de empleo", row.get("job_name")),
+        ("Tipo de convocatoria", row.get("announcement_type")),
+        ("Estado del proceso", row.get("announcement_status")),
+        ("Código", row.get("job_code")),
+        ("Fecha de publicación", row.get("publish_date")),
+        ("Plazo de solicitud", row.get("deadline_application")),
+        ("Número de plazas", row.get("job_number_places")),
+        ("Lugar de trabajo", _api_location(row).removesuffix(", Spain")),
+        ("Tipo de contrato", row.get("job_agreement")),
+        ("Titulación oficial requerida", row.get("job_official_degree_requirements")),
+        ("Titulación específica requerida", _html_text(row.get("job_specific_degree_requirements"))),
+        ("Otros requisitos", _html_text(row.get("job_other_requirements"))),
+        ("Funciones", _html_text(row.get("functions"))),
+    ]
+    return _clean(" ".join(f"{label}: {_clean(value)}" for label, value in fields if _clean(value)))
+
+
+def _api_row_to_job(row: dict) -> dict:
+    record_id = _clean(row.get("id"))
+    title = _clean(row.get("job_name"))
+    deadline = _clean(row.get("deadline_application"))
+    url = DETAIL_URL_TEMPLATE.format(id=record_id)
+    job = JobRecord(
+        source=SOURCE_NAME,
+        title=title,
+        company=COMPANY,
+        location=_api_location(row),
+        date=_clean(row.get("publish_date")),
+        url=url,
+        id=f"junta-{record_id}",
+        description=f"Portal state: {_clean(row.get('announcement_status'))}. Application deadline: {deadline}",
+        search_query="junta_open_data_fps_current_deadline",
+    ).to_dict()
+    job["portal_detail_id"] = record_id
+    job["job_code"] = _clean(row.get("job_code")) or _code_from_title(title)
+    job["portal_state"] = _clean(row.get("announcement_status"))
+    job["source_listing_active"] = True
+    job["application_window_end"] = deadline
+    job["full_detail"] = _api_full_detail(row)
+    job["detail_status"] = "OK_API"
+    return job
+
+
 def collect(
     timeout: int | tuple[int, int] = (10, 60),
     enrich_detail: bool = True,
     diagnostics: dict | None = None,
     max_jobs: int = 50,
 ) -> list[dict]:
-    """Collect FPS calls from the official Junta de Andalucía employment portal.
+    """Collect current FPS calls from the official Junta Open Data API.
 
-    The board query is source-scoped and asks the portal for calls in the application
-    window.  Explicit deadlines from each detail page still determine availability;
-    the portal's own "En curso" label is not treated as proof that applications remain
-    open.  No scoring or relevance logic lives in this collector.
+    The legacy HTML board remains documented above for provenance/canonical links,
+    but production discovery and Full JD content come from the official open-data API.
+    The API En curso state contains stale historical rows, so current availability is
+    determined from deadline_application.
     """
+    del enrich_detail
     diag = diagnostics if diagnostics is not None else {}
     diag.clear()
     diag.update({
         "source": SOURCE_NAME,
         "board_url": BOARD_URL,
-        "feed_mode": "official_junta_fps_current_application_window",
+        "api_url": OPEN_DATA_SEARCH_URL,
+        "feed_mode": "official_junta_open_data_api_deadline_filtered",
         "board_fetched": False,
-        "total_reported": None,
+        "api_fetched": False,
+        "api_hits": 0,
+        "api_total_hits": 0,
+        "api_stale_filtered": 0,
         "parsed_jobs": 0,
         "unique_jobs": 0,
         "truncated": 0,
@@ -164,66 +259,90 @@ def collect(
         "coverage_warning": "",
     })
 
+    timeout_tuple = timeout if isinstance(timeout, tuple) else (10, int(timeout))
+    params = {
+        "announcement_status": "En curso",
+        "job_official_degree_requirements": "-",
+        "announcement_type": "-",
+        "provinces": "-",
+        "job_agreement": "-",
+        "order_by": "id",
+        "mode": "DESC",
+        "format": "json",
+        "size": 500,
+        "organism": FPS_ORGANISM_SLUG,
+    }
+
     session = make_retry_session(total_retries=3, backoff_factor=1.0)
     try:
         try:
-            r = session.get(BOARD_URL, timeout=timeout, allow_redirects=True)
+            r = session.get(
+                OPEN_DATA_SEARCH_URL,
+                params=params,
+                timeout=timeout_tuple,
+                allow_redirects=True,
+            )
             r.raise_for_status()
+            payload = r.json()
+            rows = payload.get("results") or []
+            if not isinstance(rows, list):
+                raise ValueError("Junta Open Data API returned no results list")
+            diag["api_fetched"] = True
             diag["board_fetched"] = True
-            jobs, total = parse_board_html(r.text, r.url)
-            diag["total_reported"] = total
+            diag["api_hits"] = int(payload.get("hits", len(rows)) or 0)
+            diag["api_total_hits"] = int(payload.get("total_hits", len(rows)) or 0)
         except Exception as exc:
-            diag["coverage_warning"] = f"FPS/Junta board fetch/parse failed: {type(exc).__name__}: {exc}"
+            diag["coverage_warning"] = (
+                f"FPS/Junta Open Data API fetch/parse failed: {type(exc).__name__}: {exc}"
+            )
             return []
 
-        diag["parsed_jobs"] = len(jobs)
+        today = date.today()
+        current_rows: list[dict] = []
+        stale = 0
+        for row in rows:
+            deadline = _parse_api_date((row or {}).get("deadline_application"))
+            if deadline is not None and deadline < today:
+                stale += 1
+                continue
+            current_rows.append(row)
+        diag["api_stale_filtered"] = stale
+        diag["parsed_jobs"] = len(current_rows)
+
         unique: list[dict] = []
         seen: set[str] = set()
-        for job in jobs:
-            key = _canonical(job.get("url", ""))
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(job)
+        for row in current_rows:
+            record_id = _clean((row or {}).get("id"))
+            if not record_id or record_id in seen:
+                continue
+            seen.add(record_id)
+            unique.append(_api_row_to_job(row))
         diag["unique_jobs"] = len(unique)
-
-        reported = diag.get("total_reported")
-        if isinstance(reported, int) and reported != len(unique):
-            diag["coverage_warning"] = (
-                f"FPS/Junta current board reported {reported} resource(s) but parser found {len(unique)} unique detail rows"
-            )
 
         if len(unique) > max_jobs:
             diag["truncated"] = len(unique) - max_jobs
             unique = unique[:max_jobs]
             diag["coverage_warning"] = (
-                f"FPS/Junta current listing set truncated by max_jobs={max_jobs}; "
+                f"FPS/Junta current API set truncated by max_jobs={max_jobs}; "
                 f"{diag['truncated']} listing(s) not processed"
             )
 
-        if enrich_detail:
-            ok_statuses = {"OK_HTML", "OK_PDF", "OK_PDF_ATTACHMENT", "OK_ATTACHMENT", "OK"}
-            for job in unique:
-                diag["detail_attempts"] += 1
-                detail, status = fetch_url_text(
-                    job.get("url", ""),
-                    timeout=(10, 45),
-                    title_hint=job.get("title", ""),
-                    session=session,
-                    follow_job_attachments=True,
-                )
-                job["full_detail"] = detail
-                job["detail_status"] = status
-                counts = diag["detail_status_counts"]
-                counts[status] = int(counts.get(status, 0)) + 1
-                if detail and status in ok_statuses:
-                    diag["detail_success"] += 1
-                    _enrich_metadata_from_detail(job)
-                else:
-                    diag["detail_failed"] += 1
+        diag["detail_attempts"] = len(unique)
+        diag["detail_success"] = sum(1 for j in unique if j.get("full_detail"))
+        diag["detail_failed"] = len(unique) - diag["detail_success"]
+        diag["detail_status_counts"] = {"OK_API": diag["detail_success"]} if unique else {}
 
-        count_ok = not isinstance(reported, int) or reported == diag["unique_jobs"]
+        api_complete = diag["api_hits"] == len(rows) == diag["api_total_hits"]
+        if not api_complete and not diag["coverage_warning"]:
+            diag["coverage_warning"] = (
+                f"FPS/Junta API response incomplete: hits={diag['api_hits']}, "
+                f"total_hits={diag['api_total_hits']}, rows={len(rows)}"
+            )
         diag["coverage_complete"] = bool(
-            diag["board_fetched"] and diag["truncated"] == 0 and count_ok
+            diag["api_fetched"]
+            and api_complete
+            and diag["truncated"] == 0
+            and diag["detail_failed"] == 0
         )
         return unique
     finally:
