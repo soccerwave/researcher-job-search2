@@ -99,3 +99,35 @@ jobs:
               print('FPS_ROWS=',len(fps))
               print('FPS_SAMPLE=',json.dumps(fps[-3:] if fps else [],ensure_ascii=False)[:10000])
           PY
+
+      - name: Query open records without organism slug
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import requests, json
+          url='https://datos.juntadeandalucia.es/api/v0/job-offering-public-sector/search'
+          params={
+            'announcement_status':'En curso',
+            'job_official_degree_requirements':'-',
+            'announcement_type':'-',
+            'provinces':'-',
+            'job_agreement':'-',
+            'order_by':'id',
+            'mode':'DESC',
+            'format':'json',
+            'size':200
+          }
+          r=requests.get(url,params=params,timeout=(10,30))
+          print('STATUS2=',r.status_code)
+          print('URL2=',r.url)
+          print('BODY2=',r.text[:12000])
+          if r.ok:
+              x=r.json()
+              rows=x.get('result',x) if isinstance(x,dict) else x
+              if isinstance(rows,list):
+                  fps=[q for q in rows if 'progreso y salud' in json.dumps(q,ensure_ascii=False).lower()]
+                  print('ROWS2=',len(rows))
+                  print('FPS_ROWS2=',len(fps))
+                  print('FPS2=',json.dumps(fps[:20],ensure_ascii=False)[:20000])
+          PY
