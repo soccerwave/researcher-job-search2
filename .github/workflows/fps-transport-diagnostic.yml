@@ -1,0 +1,37 @@
+name: FPS Transport Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fps-transport-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Junta FPS transport
+        shell: bash
+        run: |
+          set +e
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36'
+          HOST='www.juntadeandalucia.es'
+          BOARD='https://www.juntadeandalucia.es/organismos/fps/estructura/transparencia/empleo-publico/ofertas-empleo.html'
+          DETAIL='https://www.juntadeandalucia.es/organismos/fps/estructura/transparencia/empleo-publico/ofertas-empleo/detalle/683584.html'
+          echo '=== DNS ==='
+          getent ahosts "$HOST" | head -20
+          echo '=== CURL default board ==='
+          curl -L -A "$UA" --connect-timeout 10 --max-time 25 -sS -o /tmp/a -w 'RC=%{exitcode} HTTP=%{http_code} CONNECT=%{time_connect} START=%{time_starttransfer} TOTAL=%{time_total} IP=%{remote_ip}\n' "$BOARD"
+          echo "BYTES=$(wc -c </tmp/a 2>/dev/null || echo 0)"
+          echo '=== CURL IPv4 board ==='
+          curl -4 -L -A "$UA" --connect-timeout 10 --max-time 25 -sS -o /tmp/b -w 'RC=%{exitcode} HTTP=%{http_code} CONNECT=%{time_connect} START=%{time_starttransfer} TOTAL=%{time_total} IP=%{remote_ip}\n' "$BOARD"
+          echo "BYTES=$(wc -c </tmp/b 2>/dev/null || echo 0)"
+          echo '=== CURL IPv4 detail ==='
+          curl -4 -L -A "$UA" --connect-timeout 10 --max-time 25 -sS -o /tmp/c -w 'RC=%{exitcode} HTTP=%{http_code} CONNECT=%{time_connect} START=%{time_starttransfer} TOTAL=%{time_total} IP=%{remote_ip}\n' "$DETAIL"
+          echo "BYTES=$(wc -c </tmp/c 2>/dev/null || echo 0)"
+          echo '=== HEAD IPv4 ==='
+          curl -4 -I -L -A "$UA" --connect-timeout 10 --max-time 25 -sS -o /tmp/h -w 'RC=%{exitcode} HTTP=%{http_code} CONNECT=%{time_connect} START=%{time_starttransfer} TOTAL=%{time_total} IP=%{remote_ip}\n' "$BOARD"
+          head -20 /tmp/h
