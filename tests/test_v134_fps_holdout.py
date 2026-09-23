@@ -1,4 +1,12 @@
-from sources.fps_andalucia import BOARD_URL, collect, parse_board_html
+from datetime import date, timedelta
+
+from sources.fps_andalucia import (
+    BOARD_URL,
+    OPEN_DATA_SEARCH_URL,
+    FPS_ORGANISM_SLUG,
+    collect,
+    parse_board_html,
+)
 
 
 def test_parse_fps_current_board_all_rows_no_relevance_filter():
@@ -33,63 +41,123 @@ def test_parse_fps_deduplicates_detail_links_and_ignores_other_links():
     assert rows[0]["id"] == "junta-679828"
 
 
-def test_collect_fps_resolves_full_detail_and_extracts_deadline(monkeypatch):
-    board_html = '''
-    <html><body><div>1 recurso disponible</div><table><tr>
-      <td><a href="/organismos/fps/estructura/transparencia/empleo-publico/ofertas-empleo/detalle/679828.html">Investigador/a en Formación - 2467</a></td>
-      <td>Indefinido</td><td>En curso</td><td>Fundación Pública Andaluza Progreso y Salud, M.P.</td>
-    </tr></table></body></html>
-    '''
-    class Resp:
-        def __init__(self):
-            self.url = BOARD_URL
-            self.text = board_html
-        def raise_for_status(self):
-            return None
-    class Session:
-        def get(self, url, *args, **kwargs):
-            assert url == BOARD_URL
-            return Resp()
-        def close(self):
-            pass
-    monkeypatch.setattr("sources.fps_andalucia.make_retry_session", lambda **kwargs: Session())
-    detail = (
-        "Oferta de empleo Investigador/a en Formación - 2467 Información general "
-        "Plazo de solicitud 11/08/2026 - 31/08/2026 Lugar de trabajo Granada (Granada) "
-        "Tipo de contrato Indefinido Titulación oficial requerida Grado Universitario "
-        "Otros requisitos Requerimientos mínimos investigación biomédica laboratorio "
-        "Funciones desarrollo de terapias celulares avanzadas. " * 8
-    )
-    monkeypatch.setattr("sources.fps_andalucia.fetch_url_text", lambda *args, **kwargs: (detail, "OK_HTML"))
+def _api_row(record_id: str, title: str, deadline: str) -> dict:
+    return {
+        "id": record_id,
+        "job_name": title,
+        "job_official_degree_requirements": "Grado Universitario",
+        "job_specific_degree_requirements": "<p>Ciencias de la Salud</p>",
+        "organisms": [{"organism": FPS_ORGANISM_SLUG}],
+        "announcement_type": "Oferta de empleo",
+        "announcement_status": "En curso",
+        "functions": "<ul><li>Gestión de proyectos de investigación</li></ul>",
+        "job_agreement": "Indefinido",
+        "job_location": [{
+            "locality": "Sevilla",
+            "field_lugar_provincia": [{"provinces": "Sevilla"}],
+        }],
+        "job_code": "44-2026",
+        "publish_date": "2026-09-15",
+        "job_number_places": "1",
+        "job_other_requirements": "<p>Experiencia en investigación clínica</p>",
+        "deadline_application": deadline,
+    }
+
+
+class _Resp:
+    def __init__(self, payload):
+        self._payload = payload
+        self.url = OPEN_DATA_SEARCH_URL
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _Session:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def get(self, url, *args, **kwargs):
+        self.calls.append((url, kwargs))
+        assert url == OPEN_DATA_SEARCH_URL
+        return _Resp(self.payload)
+
+    def close(self):
+        pass
+
+
+def test_collect_fps_uses_official_api_and_builds_full_detail(monkeypatch):
+    future = (date.today() + timedelta(days=10)).isoformat()
+    payload = {
+        "hits": 1,
+        "total_hits": 1,
+        "results": [_api_row("683584", "Técnico/a de Investigación 44-2026", future)],
+    }
+    session = _Session(payload)
+    monkeypatch.setattr("sources.fps_andalucia.make_retry_session", lambda **kwargs: session)
+
     diag = {}
     rows = collect(diagnostics=diag)
+
     assert len(rows) == 1
-    assert rows[0]["detail_status"] == "OK_HTML"
-    assert rows[0]["application_window_end"] == "31/08/2026"
-    assert "Application deadline: 31/08/2026" in rows[0]["description"]
-    assert rows[0]["location"].startswith("Granada (Granada)")
+    row = rows[0]
+    assert row["id"] == "junta-683584"
+    assert row["detail_status"] == "OK_API"
+    assert row["application_window_end"] == future
+    assert "Gestión de proyectos de investigación" in row["full_detail"]
+    assert "Experiencia en investigación clínica" in row["full_detail"]
+    assert row["location"].startswith("Sevilla")
+    assert diag["feed_mode"] == "official_junta_open_data_api_deadline_filtered"
     assert diag["detail_success"] == 1
+    assert diag["detail_failed"] == 0
+    assert diag["coverage_complete"] is True
+
+    _, kwargs = session.calls[0]
+    assert kwargs["params"]["organism"] == FPS_ORGANISM_SLUG
+    assert kwargs["params"]["announcement_status"] == "En curso"
+
+
+def test_collect_fps_filters_stale_en_curso_rows_by_deadline(monkeypatch):
+    future = (date.today() + timedelta(days=5)).isoformat()
+    past = (date.today() - timedelta(days=5)).isoformat()
+    payload = {
+        "hits": 2,
+        "total_hits": 2,
+        "results": [
+            _api_row("new", "Current FPS role", future),
+            _api_row("old", "Stale FPS role", past),
+        ],
+    }
+    monkeypatch.setattr(
+        "sources.fps_andalucia.make_retry_session",
+        lambda **kwargs: _Session(payload),
+    )
+
+    diag = {}
+    rows = collect(diagnostics=diag)
+    assert [r["id"] for r in rows] == ["junta-new"]
+    assert diag["api_stale_filtered"] == 1
     assert diag["coverage_complete"] is True
 
 
-def test_collect_fps_truthfully_flags_reported_count_mismatch(monkeypatch):
-    board_html = '''
-    <html><body><div>2 recursos disponibles</div><table><tr>
-      <td><a href="/organismos/fps/estructura/transparencia/empleo-publico/ofertas-empleo/detalle/679828.html">Investigador/a en Formación - 2467</a></td>
-      <td>Indefinido</td><td>En curso</td>
-    </tr></table></body></html>
-    '''
-    class Resp:
-        url = BOARD_URL
-        text = board_html
-        def raise_for_status(self): return None
-    class Session:
-        def get(self, *args, **kwargs): return Resp()
-        def close(self): pass
-    monkeypatch.setattr("sources.fps_andalucia.make_retry_session", lambda **kwargs: Session())
+def test_collect_fps_truthfully_flags_incomplete_api_response(monkeypatch):
+    future = (date.today() + timedelta(days=5)).isoformat()
+    payload = {
+        "hits": 1,
+        "total_hits": 2,
+        "results": [_api_row("683584", "Técnico/a de Investigación 44-2026", future)],
+    }
+    monkeypatch.setattr(
+        "sources.fps_andalucia.make_retry_session",
+        lambda **kwargs: _Session(payload),
+    )
+
     diag = {}
-    rows = collect(diagnostics=diag, enrich_detail=False)
+    rows = collect(diagnostics=diag)
     assert len(rows) == 1
-    assert diag["total_reported"] == 2
     assert diag["coverage_complete"] is False
-    assert "reported 2" in diag["coverage_warning"]
+    assert "API response incomplete" in diag["coverage_warning"]
