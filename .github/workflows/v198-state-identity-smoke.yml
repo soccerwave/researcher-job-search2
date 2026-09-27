@@ -1,0 +1,27 @@
+name: V1.98 State Identity Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v198-state-identity-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Run identity/state regressions
+        run: |
+          pytest -q \
+            tests/test_v198_state_identity_collision.py \
+            tests/test_v174_state_detail_degradation_guard.py \
+            tests/test_v162_durable_production_state.py
