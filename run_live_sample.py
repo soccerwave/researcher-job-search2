@@ -205,7 +205,7 @@ def write_csv(path: Path, rows: list[dict], fallback_rows: list[dict] | None = N
 def _has_full_detail(job: dict) -> bool:
     status = str(job.get("detail_status") or "")
     detail = str(job.get("full_detail") or "").strip()
-    return bool(detail) and status in {"OK_HTML", "OK_PDF", "OK_PDF_ATTACHMENT", "OK_ATTACHMENT", "CACHE", "OK"}
+    return bool(detail) and status in {"OK_HTML", "OK_PDF", "OK_PDF_ATTACHMENT", "OK_ATTACHMENT", "OK_API", "CACHE", "OK"}
 
 
 
