@@ -1,0 +1,23 @@
+name: V2.00 InfoJobs Watch Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v200-infojobs-watch-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Run watch-only regressions
+        run: pytest -q tests/test_v200_infojobs_watch_only.py tests/test_v137_production_orchestration.py -k "infojobs or v137_all_selects_every_production_source_in_stable_order or fail_soft"
