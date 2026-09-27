@@ -1,0 +1,23 @@
+name: V1.40 Research PM Recall Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v140-research-pm-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Focused evaluator regressions
+        run: pytest -q tests/test_v140_research_pm_recall.py tests/test_v188_evaluator_calibration.py
