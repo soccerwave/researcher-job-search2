@@ -152,6 +152,7 @@ jobs:
             runtime/live_output/new_actionable.csv
             runtime/live_output/changed_or_reopened.csv
             runtime/live_output/needs_detail_review.csv
+            runtime/live_output/infojobs_watch.csv
             runtime/live_output/source_summary.csv
             runtime/live_output/cloud_publish_manifest.json
           retention-days: 30
