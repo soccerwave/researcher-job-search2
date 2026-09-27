@@ -418,6 +418,7 @@ def run(args) -> dict:
 
     collected = collect_sources(args, out)
     jobs = collected["jobs"]
+    infojobs_watch = collected.get("watch_jobs", [])
     unique, dupes = deduplicate(jobs)
     availability_day = resolve_as_of(args.as_of)
     unique = [{**job, **_assess_job_availability(job, availability_day)} for job in unique]
@@ -522,6 +523,7 @@ def run(args) -> dict:
     write_csv(out / "changed_or_reopened.csv", changed_or_reopened, fallback_rows=all_canonical)
     write_csv(out / "seen_unchanged.csv", seen_unchanged, fallback_rows=all_canonical)
     write_csv(out / "state_quality_events.csv", state_quality_events, fallback_rows=all_canonical)
+    write_csv(out / "infojobs_watch.csv", infojobs_watch)
 
     # Enrich collection diagnostics with canonical/scoring/availability counts. A
     # cross-source duplicate is counted once in aggregate and may appear in each
@@ -593,6 +595,7 @@ def run(args) -> dict:
         "as_of": args.as_of,
         "availability_as_of": availability_day.isoformat(),
         "raw": len(jobs),
+        "infojobs_watch_only": len(infojobs_watch),
         "unique": len(unique),
         "duplicates_removed": dupes,
         "errors": collected["errors"],
