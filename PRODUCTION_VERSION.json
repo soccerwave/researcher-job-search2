@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.97_FPS_OK_API_INTEGRATION",
+  "production_version": "V1.98_STATE_IDENTITY_COLLISION_GUARD",
   "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "FPS production integration fix only. OK_API is now a trusted resolved Full JD status in both run_live_sample scoring eligibility and persistent state quality tracking. FPS Open Data API rows therefore enter deterministic evaluation instead of NEEDS_DETAIL_REVIEW. Collector V1.96 and prior EURAXESS, Biocat and AcademicPositions fixes remain active. Scoring engine is unchanged.",
+  "scope": "Persistent-state identity correctness fix only. Rows with stable source IDs or vacancy-specific URLs no longer fall back to weak title/company/location matching. Legacy polluted state records are self-healed when two current vacancies with disjoint strong identities resolve to the same state_id: the later identity is split into a separate state record without emitting a false NEW. V1.97 FPS OK_API integration remains active. Scoring engine is unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.96_FPS_OPEN_DATA_API"
+  "previous_production_version": "V1.97_FPS_OK_API_INTEGRATION"
 }
