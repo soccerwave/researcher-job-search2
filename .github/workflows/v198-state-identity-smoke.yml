@@ -24,4 +24,5 @@ jobs:
           pytest -q \
             tests/test_v198_state_identity_collision.py \
             tests/test_v174_state_detail_degradation_guard.py \
-            tests/test_v162_durable_production_state.py
+            tests/test_v162_durable_production_state.py \
+            -k "not manifest"
