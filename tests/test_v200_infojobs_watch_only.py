@@ -58,6 +58,7 @@ def test_v200_infojobs_discovery_is_watch_only(tmp_path):
     def fake_infojobs(*, diagnostics, enrich_detail, **kwargs):
         assert enrich_detail is False
         diagnostics.update({
+            "repo_path": "/tmp/fake-infojobs-repo",
             "coverage_complete": True,
             "search_attempts": 7,
             "search_success": 7,
