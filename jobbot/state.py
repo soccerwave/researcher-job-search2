@@ -270,20 +270,82 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
     index = _alias_index(jobs)
 
     counts = {"NEW": 0, "SEEN": 0, "MATERIALLY_CHANGED": 0, "REOPENED": 0}
+    identity_split_repairs = 0
+    claimed_state_identities: dict[str, set[str]] = {}
 
     for row in rows:
         quality_events: list[str] = []
         aliases_ranked = _aliases(row)
         aliases = [alias for _, alias in aliases_ranked]
+        strong_aliases = [alias for rank, alias in aliases_ranked if rank <= 1]
+        source_id_aliases = [alias for alias in strong_aliases if alias.startswith("source_id:")]
+        identity_signature = set(source_id_aliases or strong_aliases)
+
+        # When a vacancy exposes a stable source ID or a vacancy-specific URL, never
+        # fall back to title/company/location aliases. Repeated titles are common on
+        # institutional boards and must not merge distinct calls.
+        match_candidates = (
+            [(rank, alias) for rank, alias in aliases_ranked if rank <= 1]
+            if strong_aliases else aliases_ranked
+        )
         matched_id = None
-        for _, alias in aliases_ranked:
+        for _, alias in match_candidates:
             candidate = index.get(alias)
             if candidate:
                 matched_id = candidate
                 break
 
         current_snapshot = _snapshot(row)
-        if matched_id is None:
+
+        # Self-heal legacy state pollution created by older weak-alias matching. If two
+        # current vacancies with disjoint strong identities resolve to the same state
+        # record, split the later vacancy into its own record and move its strong aliases.
+        repaired_split = False
+        if matched_id is not None and identity_signature:
+            claimed = claimed_state_identities.get(matched_id)
+            if claimed is not None and identity_signature.isdisjoint(claimed):
+                legacy_entry = jobs[matched_id]
+                legacy_aliases = list(legacy_entry.get("aliases") or [])
+                legacy_entry["aliases"] = [a for a in legacy_aliases if a not in strong_aliases]
+
+                seed = source_id_aliases[0] if source_id_aliases else strong_aliases[0]
+                new_state_id = _state_id_for_alias(seed)
+                suffix = 1
+                base_id = new_state_id
+                while new_state_id in jobs:
+                    new_state_id = f"{base_id}_{suffix}"
+                    suffix += 1
+
+                jobs[new_state_id] = {
+                    "aliases": list(aliases),
+                    # Presence of the strong alias in the legacy entry proves the vacancy
+                    # was seen before; preserve that fact without emitting a false NEW.
+                    "first_seen": legacy_entry.get("first_seen") or as_of,
+                    "last_seen": as_of,
+                    "times_seen": 1,
+                    "last_snapshot": current_snapshot,
+                }
+
+                for alias in strong_aliases:
+                    index[alias] = new_state_id
+                for alias in aliases:
+                    if alias in strong_aliases:
+                        continue
+                    existing = index.get(alias)
+                    if existing and existing != new_state_id:
+                        index[alias] = None
+                    elif alias not in index:
+                        index[alias] = new_state_id
+
+                matched_id = new_state_id
+                claimed_state_identities[new_state_id] = set(identity_signature)
+                repaired_split = True
+                identity_split_repairs += 1
+
+        if repaired_split:
+            status = "SEEN"
+            reasons: list[str] = []
+        elif matched_id is None:
             seed = aliases[0] if aliases else "fallback:" + hashlib.sha1(json.dumps(current_snapshot, sort_keys=True).encode()).hexdigest()
             matched_id = _state_id_for_alias(seed)
             suffix = 1
@@ -333,6 +395,8 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
 
         counts[status] += 1
         entry = jobs[matched_id]
+        if identity_signature:
+            claimed_state_identities.setdefault(matched_id, set()).update(identity_signature)
         row["seen_status"] = status
         row["change_reasons"] = reasons
         row["state_events"] = quality_events
@@ -353,6 +417,7 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
         **counts,
         "DETAIL_RESOLVED": detail_resolved,
         "DETAIL_UNRESOLVED": detail_unresolved,
+        "IDENTITY_SPLIT_REPAIRS": identity_split_repairs,
         "state_jobs": len(jobs),
         "state_file": str(state_path),
     }
