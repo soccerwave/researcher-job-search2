@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.99_RESEARCH_PM_TITLE_VARIANT_FIX",
+  "production_version": "V2.00_INFOJOBS_WATCH_ONLY",
   "scoring_engine": "V1.40_RESEARCH_PM_TITLE_VARIANT_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Evaluator calibration only. Research-project-management family inference now recognizes strong Spanish/Catalan research-management title variants and duty patterns (European projects, scientific management, pre-award, research-project coordination) while preserving negative controls for generic facilities/commercial PM. V1.98 state collision guard and V1.97 FPS OK_API integration remain active.",
+  "scope": "InfoJobs production policy change only. InfoJobs remains in daily discovery search but runs watch-only: title/company/location/URL signals are preserved separately in infojobs_watch.csv, no anti-bot detail fetch is attempted in production, and unresolved InfoJobs rows are excluded from canonical scoring, NEEDS_DETAIL_REVIEW, state history and normal actionable outputs. A future trusted employer/official-source resolver may promote exact matches. V1.99 evaluator calibration, V1.98 state collision guard and V1.97 FPS OK_API integration remain active.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.98_STATE_IDENTITY_COLLISION_GUARD"
+  "previous_production_version": "V1.99_RESEARCH_PM_TITLE_VARIANT_FIX"
 }
