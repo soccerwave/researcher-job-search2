@@ -126,6 +126,9 @@ def _kwargs_for_source(key: str, args, out_dir: Path, euraxess_audit: list[dict]
             "limit_per_search": getattr(args, "infojobs_limit_per_search", 10),
             "jobage_days": getattr(args, "infojobs_jobage_days", 1),
             "max_jobs": getattr(args, "infojobs_max_jobs", 100),
+            # Watch-only policy: preserve discovery signal without spending time on the
+            # known anti-bot detail path. A future trusted resolver may promote rows.
+            "enrich_detail": False,
         }
     if key == "academicpositions":
         return {"max_jobs": getattr(args, "academicpositions_max_jobs", 80)}
@@ -400,6 +403,7 @@ def collect_sources(args, out_dir: Path, collector_overrides: dict[str, Callable
     diagnostics = {key: None for key in SOURCE_ORDER}
     source_runs: dict[str, dict] = {}
     jobs: list[dict] = []
+    watch_jobs: list[dict] = []
     errors: list[str] = []
     warnings: list[str] = []
     euraxess_audit: list[dict] = []
@@ -413,7 +417,16 @@ def collect_sources(args, out_dir: Path, collector_overrides: dict[str, Callable
         try:
             rows = collectors[key](diagnostics=diag, **_kwargs_for_source(key, args, out_dir, euraxess_audit)) or []
             rows = [_annotate_provenance(r, key) for r in rows]
-            jobs.extend(rows)
+            if key == "infojobs":
+                for row in rows:
+                    row["watch_only"] = True
+                    row["watch_reason"] = "InfoJobs discovery retained; Full JD unavailable/reliability not certified"
+                watch_jobs.extend(rows)
+                diag["watch_only"] = True
+                diag["watch_discovered"] = len(rows)
+                diag["watch_promoted"] = 0
+            else:
+                jobs.extend(rows)
             diagnostic_error = _diagnostic_hard_error(key, diag)
             if diagnostic_error:
                 error = diagnostic_error
@@ -425,7 +438,7 @@ def collect_sources(args, out_dir: Path, collector_overrides: dict[str, Callable
         local_warnings = _warnings_for_source(key, diag, args)
         warnings.extend(local_warnings)
         coverage_ok = (not error) and _coverage_complete(key, diag, args)
-        detail_ok = (not error) and _detail_complete(diag)
+        detail_ok = (not error) and (True if key == "infojobs" else _detail_complete(diag))
         status = "ERROR" if error else "OK" if coverage_ok and detail_ok else "PARTIAL"
         elapsed_seconds = round(time.monotonic() - started, 1)
         print(
@@ -439,6 +452,8 @@ def collect_sources(args, out_dir: Path, collector_overrides: dict[str, Callable
             "elapsed_seconds": elapsed_seconds,
             "coverage_complete": coverage_ok,
             "detail_resolution_complete": detail_ok,
+            "watch_only": bool(key == "infojobs"),
+            "watch_discovered": len(rows) if key == "infojobs" else 0,
             "detail_success": int(diag.get("detail_success", 0) or 0),
             "detail_failed": int(diag.get("detail_failed", 0) or 0),
             "truncated": int(diag.get("truncated", diag.get("candidate_truncated", 0)) or 0),
@@ -448,6 +463,7 @@ def collect_sources(args, out_dir: Path, collector_overrides: dict[str, Callable
 
     return {
         "jobs": jobs,
+        "watch_jobs": watch_jobs,
         "errors": errors,
         "warnings": list(dict.fromkeys(warnings)),
         "diagnostics": diagnostics,
