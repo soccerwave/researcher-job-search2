@@ -1,0 +1,42 @@
+name: V1.97 OK API Integration Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v197-ok-api-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Run focused regressions
+        run: pytest -q tests/test_v197_ok_api_integration.py tests/test_v134_fps_holdout.py
+      - name: Verify live FPS rows are scoring-eligible
+        shell: bash
+        run: |
+          python - <<'PY'
+          from sources import fps_andalucia
+          from run_live_sample import _has_full_detail
+          diag={}
+          rows=fps_andalucia.collect(diagnostics=diag)
+          eligible=[r for r in rows if _has_full_detail(r)]
+          print("FPS_ROWS=",len(rows))
+          print("SCORING_ELIGIBLE=",len(eligible))
+          print("NEEDS_DETAIL=",len(rows)-len(eligible))
+          print("DETAIL_STATUS_COUNTS=",diag.get("detail_status_counts"))
+          print("COVERAGE_COMPLETE=",diag.get("coverage_complete"))
+          assert rows
+          assert len(eligible)==len(rows)
+          assert diag.get("coverage_complete") is True
+          assert diag.get("detail_failed")==0
+          PY
