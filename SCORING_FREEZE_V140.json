@@ -1,0 +1,19 @@
+{
+  "scoring_engine": "V1.40_RESEARCH_PM_TITLE_VARIANT_RECALL",
+  "package": "V1.99_RESEARCH_PM_TITLE_VARIANT_FIX",
+  "status": "ACTIVE_PRODUCTION_CANDIDATE",
+  "note": "V1.40 extends institutional research-project-management inference to Spanish/Catalan title variants and strong research-management duties (including pre-award, European projects, scientific management and research-project coordination) while retaining negative guards for generic facilities/commercial PM roles. V1.39 mandatory qualification/experience guards, thresholds and weights remain unchanged.",
+  "tests_planned": [
+    "tests/test_v140_research_pm_recall.py",
+    "tests/test_v188_evaluator_calibration.py",
+    "existing evaluator regression suite"
+  ],
+  "sha256": {
+    "jobbot/evaluate.py": "fd4908f9b239e57067e7d38f44ff31fba29ed8b0ebf719e3f775d3667812ac08",
+    "jobbot/rules.py": "012147f8fc6493e8801fd184977638365346a658e79c224058e4271d670e611b",
+    "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+    "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+    "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+    "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+  }
+}
