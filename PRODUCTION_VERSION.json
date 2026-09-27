@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.98_STATE_IDENTITY_COLLISION_GUARD",
-  "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
+  "production_version": "V1.99_RESEARCH_PM_TITLE_VARIANT_FIX",
+  "scoring_engine": "V1.40_RESEARCH_PM_TITLE_VARIANT_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Persistent-state identity correctness fix only. Rows with stable source IDs or vacancy-specific URLs no longer fall back to weak title/company/location matching. Legacy polluted state records are self-healed when two current vacancies with disjoint strong identities resolve to the same state_id: the later identity is split into a separate state record without emitting a false NEW. V1.97 FPS OK_API integration remains active. Scoring engine is unchanged.",
+  "scope": "Evaluator calibration only. Research-project-management family inference now recognizes strong Spanish/Catalan research-management title variants and duty patterns (European projects, scientific management, pre-award, research-project coordination) while preserving negative controls for generic facilities/commercial PM. V1.98 state collision guard and V1.97 FPS OK_API integration remain active.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.97_FPS_OK_API_INTEGRATION"
+  "previous_production_version": "V1.98_STATE_IDENTITY_COLLISION_GUARD"
 }
