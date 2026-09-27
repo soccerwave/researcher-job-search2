@@ -582,7 +582,8 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
             r"research institute|research centre|research center|centro de investigacion|"
             r"centre de recerca|instituto de investigacion|universit|research foundation|"
             r"fundacion.{0,80}investigacion|fundacio.{0,80}recerca|hospital.{0,80}research|"
-            r"directorate of research|research and innovation",
+            r"directorate of research|research and innovation|research teams?|"
+            r"equips? d investigacio|grups? d investigacio|equipos? de investigacion",
             norm, re.I
         )),
         bool(re.search(
@@ -632,10 +633,19 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     ):
         family = "research_project_management"
 
+    strong_research_management_title_cue = bool(re.search(
+        r"gestor(?: a)? de proyectos? europeos?|gestor(?: a)? pre[- ]?award|"
+        r"tecnico(?: a)? de gestion cientifica|tecnico(?: a)? de gestion de (?:la )?investigacion|"
+        r"coordinador(?: a)? de projectes? de recerca|coordinador(?: a)? de proyectos? de investigacion",
+        title_norm_for_pm, re.I
+    ))
     institutional_research_management_context = bool(
         family == "research_project_management"
         and institutional_research_management_signals[0]
-        and institutional_signal_count >= 3
+        and (
+            institutional_signal_count >= 3
+            or (strong_research_management_title_cue and institutional_signal_count >= 2)
+        )
         and domain_category == "UNCLEAR"
     )
     if institutional_research_management_context:
