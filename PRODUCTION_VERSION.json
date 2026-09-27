@@ -1,10 +1,10 @@
 {
-  "production_version": "V1.96_FPS_OPEN_DATA_API",
+  "production_version": "V1.97_FPS_OK_API_INTEGRATION",
   "scoring_engine": "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "FPS collector transport replacement only. Production now uses the official Junta de Andalucía Open Data job-offering-public-sector API with the FPS organism slug and local deadline filtering, replacing the failing HTML board transport. Full JD fields are assembled from official API data; stale En curso records with expired deadlines are excluded. V1.93 EURAXESS, V1.94 Biocat and V1.95 AcademicPositions fixes remain active. Scoring is unchanged.",
+  "scope": "FPS production integration fix only. OK_API is now a trusted resolved Full JD status in both run_live_sample scoring eligibility and persistent state quality tracking. FPS Open Data API rows therefore enter deterministic evaluation instead of NEEDS_DETAIL_REVIEW. Collector V1.96 and prior EURAXESS, Biocat and AcademicPositions fixes remain active. Scoring engine is unchanged.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V1.95_ACADEMICPOSITIONS_OPTIONAL_MIRROR"
+  "previous_production_version": "V1.96_FPS_OPEN_DATA_API"
 }
