@@ -557,21 +557,86 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         domain_category = "ADJACENT"
         domain_hits = sorted(set(domain_hits + ["health_sciences"]))
 
-    # V1.92: a research-project-management role can be strongly aligned even when the
-    # scientific topic is unspecified. Promote only when several institutional research-
-    # administration signals co-occur; employer context alone is never enough.
+    # V1.40: infer research-project-management from the actual institutional duties,
+    # not only from a small set of English canonical titles. Spanish/Catalan research
+    # employers often advertise the same family as "gestor/a pre-award", "gestor/a de
+    # proyectos europeos", "técnico/a de gestión científica" or "coordinador/a de
+    # projectes de recerca". A title cue is necessary unless the JD contains a very rich
+    # management pattern; employer context alone never promotes a generic PM.
+    title_norm_for_pm = normalize(title)
+    research_management_title_cue = bool(re.search(
+        r"\bproject (?:manager|coordinator|officer)\b|"
+        r"\bresearch project (?:manager|coordinator|officer)\b|"
+        r"\bscientific project coordinator\b|"
+        r"\bgestor(?: a)? de proyectos? europeos?\b|"
+        r"\bgestor(?: a)? pre[- ]?award\b|"
+        r"\btecnico(?: a)? de gestion cientifica\b|"
+        r"\btecnico(?: a)? de gestion de (?:la )?investigacion\b|"
+        r"\bcoordinador(?: a)? de projectes? de recerca\b|"
+        r"\bcoordinador(?: a)? de proyectos? de investigacion\b",
+        title_norm_for_pm, re.I
+    ))
+
     institutional_research_management_signals = [
-        bool(re.search(r"research institute|research centre|research center|centro de investigacion|centre de recerca|instituto de investigacion|universit", norm, re.I)),
-        bool(re.search(r"gestion.{0,80}(?:proyectos?|projectes?|investigacion|recerca)|gestio.{0,80}(?:projectes?|recerca)|coordinacion.{0,80}(?:proyectos?|procesos?|cientific)|coordinacio.{0,80}(?:projectes?|processos?|cientific)", norm, re.I)),
-        bool(re.search(r"convocatorias?.{0,80}(?:ayudas?|competitivas?|internas?)|convocatories?.{0,80}(?:ajuts?|competitives?|internes?)|grant calls?|research grants?|funding calls?", norm, re.I)),
-        bool(re.search(r"acreditacion(?:es)? institucional|acreditacions? institucionals?|hrs4r|\bcerca\b|\bisciii\b", norm, re.I)),
-        bool(re.search(r"informes?|memorias?|reports?|reporting|presentaciones?|presentacions?.{0,120}(?:organos?|organs?|governance|advisory)", norm, re.I)),
-        bool(re.search(r"comision.{0,80}(?:proyectos?|priorizacion)|comissio.{0,80}(?:projectes?|prioritzacio)|scientific coordination|coordinacion cientifica|coordinacio cientifica", norm, re.I)),
+        bool(re.search(
+            r"research institute|research centre|research center|centro de investigacion|"
+            r"centre de recerca|instituto de investigacion|universit|research foundation|"
+            r"fundacion.{0,80}investigacion|fundacio.{0,80}recerca|hospital.{0,80}research|"
+            r"directorate of research|research and innovation",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"gestion.{0,100}(?:proyectos?|projectes?|investigacion|recerca)|"
+            r"gestio.{0,100}(?:projectes?|recerca)|"
+            r"coordinacion.{0,100}(?:proyectos?|procesos?|cientific|tecnic)|"
+            r"coordinacio.{0,100}(?:projectes?|processos?|cientific|tecnic)|"
+            r"project (?:management|planning|coordination|monitoring)|"
+            r"planning.{0,80}(?:project|workplan)|monitoring.{0,80}(?:project|activities)",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"convocatorias?.{0,100}(?:ayudas?|competitivas?|internas?|financiacion)|"
+            r"convocatories?.{0,100}(?:ajuts?|competitives?|internes?|financament)|"
+            r"grant calls?|research grants?|funding calls?|funding opportunit|"
+            r"oportunidades? de financiacion|oportunitats? de financament|"
+            r"pre[- ]?award|proposal preparation|preparacion.{0,80}propuestas?|"
+            r"elaboracio.{0,80}propostes?|competitive proposals?",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"acreditacion(?:es)? institucional|acreditacions? institucionals?|hrs4r|\bcerca\b|\bisciii\b",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"informes?|memorias?|reports?|reporting|presentaciones?|presentacions?|"
+            r"deliverables?|milestones?|workplans?|work packages?|risk management",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"comision.{0,80}(?:proyectos?|priorizacion)|comissio.{0,80}(?:projectes?|prioritzacio)|"
+            r"scientific coordination|coordinacion cientifica|coordinacio cientifica|"
+            r"technical coordination|coordinacion tecnica|coordinacio tecnica",
+            norm, re.I
+        )),
+        bool(re.search(
+            r"horizon europe|european commission|erc\b|\bmsca\b|eu4health|"
+            r"international consortium|consorcios? internacionales?|consorcis? internacionals?",
+            norm, re.I
+        )),
     ]
+
+    institutional_signal_count = sum(institutional_research_management_signals)
+    if family == "unclear" and (
+        (research_management_title_cue and institutional_signal_count >= 2)
+        or institutional_signal_count >= 5
+    ):
+        family = "research_project_management"
+
     institutional_research_management_context = bool(
         family == "research_project_management"
+        and institutional_research_management_signals[0]
+        and institutional_signal_count >= 3
         and domain_category == "UNCLEAR"
-        and sum(institutional_research_management_signals) >= 3
     )
     if institutional_research_management_context:
         domain_category = "ADJACENT"
