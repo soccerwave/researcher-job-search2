@@ -106,6 +106,8 @@ def _load_cache(path: Path | None, as_of: date | None = None) -> tuple[dict[tupl
         "historical_detail_cache_loaded": 0,
         "historical_detail_cache_eligible": 0,
         "historical_detail_cache_error": "",
+        "historical_detail_cache_expired": 0,
+        "historical_detail_cache_carried_age": 0,
     }
     if not path or not path.exists():
         return {}, diag
@@ -125,8 +127,24 @@ def _load_cache(path: Path | None, as_of: date | None = None) -> tuple[dict[tupl
                 snapshot_day = _snapshot_day(row)
                 if snapshot_day is None:
                     continue
-                age_days = (today - snapshot_day).days
-                if age_days < 0 or age_days > HISTORICAL_DETAIL_MAX_AGE_DAYS:
+                snapshot_age_days = (today - snapshot_day).days
+                if snapshot_age_days < 0:
+                    continue
+
+                # CACHE rows may themselves have been created from an older fallback.
+                # Carry forward the original detail age instead of resetting freshness
+                # to the date of the most recent canonical snapshot.
+                prior_detail_age = 0
+                if _clean(row.get("detail_status")) == "CACHE":
+                    try:
+                        prior_detail_age = max(0, int(float(_clean(row.get("detail_age_days")) or 0)))
+                    except (TypeError, ValueError):
+                        prior_detail_age = 0
+                age_days = snapshot_age_days + prior_detail_age
+                if prior_detail_age:
+                    diag["historical_detail_cache_carried_age"] += 1
+                if age_days > HISTORICAL_DETAIL_MAX_AGE_DAYS:
+                    diag["historical_detail_cache_expired"] += 1
                     continue
                 key = _identity_key(row)
                 if not key[0]:
