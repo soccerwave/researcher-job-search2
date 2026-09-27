@@ -1,0 +1,23 @@
+name: V2.01 Madrid Cache Age Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/v201-madrid-cache-age-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Run Madrid cache regressions
+        run: pytest -q tests/test_v201_madrid_cache_age.py tests/test_v188_evaluator_calibration.py -k "madrid or cache"
