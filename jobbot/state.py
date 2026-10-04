@@ -4,8 +4,9 @@ import hashlib
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .normalize import normalize
 
@@ -13,6 +14,13 @@ STATE_VERSION = "V1.39_SEEN_HISTORY_V2"
 LEGACY_STATE_VERSIONS = {"V1.38_SEEN_HISTORY_V1"}
 VALID_DETAIL_STATUSES = {"OK_HTML", "OK_PDF", "OK_PDF_ATTACHMENT", "OK_ATTACHMENT", "OK_API", "CACHE", "OK"}
 OPEN_STATUSES = {"OPEN", "OPEN_UNTIL_FILLED"}
+
+_IDENTITY_QUERY_KEYS = {
+    "id", "jobid", "job_id", "job-id", "vacancyid", "vacancy_id",
+    "offerid", "offer_id", "ofertaid", "oferta_id", "idoferta", "id_oferta", "convocatoriaid",
+    "convocatoria_id", "positionid", "position_id", "requisitionid",
+    "requisition_id", "reqid", "req_id",
+}
 
 
 def _norm_text(value) -> str:
@@ -34,12 +42,23 @@ def _normalized_url(value) -> str:
     port = parts.port
     netloc = f"{host}:{port}" if port else host
     path = re.sub(r"/{2,}", "/", parts.path or "/").rstrip("/") or "/"
-    # Preserve identity-bearing SPA routes, but drop normal tracking fragments/query.
+
+    # Preserve only query keys that carry vacancy identity. Tracking/filter/pagination
+    # parameters remain noise, but portals such as Hospital del Mar put the actual
+    # vacancy identity in a shared detail endpoint's ?id=... query parameter.
+    identity_pairs = []
+    for key, item in parse_qsl(parts.query, keep_blank_values=False):
+        if key.lower() in _IDENTITY_QUERY_KEYS and str(item).strip():
+            identity_pairs.append((key.lower(), str(item).strip().lower()))
+    identity_pairs.sort()
+    query = urlencode(identity_pairs)
+
+    # Preserve identity-bearing SPA routes, but drop normal tracking fragments.
     fragment = ""
     m = re.search(r"(?:^|/)ver-oferta/(\d+)(?:$|[/?])", parts.fragment or "", re.I)
     if m:
         fragment = f"/ver-oferta/{m.group(1)}"
-    return urlunsplit((scheme, netloc, path + fragment, "", "")).rstrip("/")
+    return urlunsplit((scheme, netloc, path + fragment, query, "")).rstrip("/")
 
 
 def _is_generic_listing_url(url: str) -> bool:
@@ -58,6 +77,64 @@ def _is_generic_listing_url(url: str) -> bool:
 
 def _source_token(value) -> str:
     return _norm_text(value).replace(" ", "_")
+
+
+def _title_core(value) -> str:
+    """Normalize the role-bearing part of a title for conservative continuity checks."""
+    raw = str(value or "")
+    # Qualification blurbs are common in institutional titles and may change without
+    # changing the vacancy itself. Compare the role-bearing title outside brackets.
+    raw = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", raw)
+    return _norm_text(raw)
+
+
+def _titles_materially_different(previous, current) -> bool:
+    """Return True only when two non-empty role titles are clearly different."""
+    old = _title_core(previous)
+    new = _title_core(current)
+    if not old or not new or old == new:
+        return False
+    old_tokens = old.split()
+    new_tokens = new.split()
+    if set(old_tokens) == set(new_tokens):
+        return False
+    return SequenceMatcher(None, old, new).ratio() < 0.88
+
+
+def _specific_url_aliases(aliases) -> set[str]:
+    return {str(alias) for alias in (aliases or []) if str(alias).startswith("url:")}
+
+
+def _source_id_conflicts_with_entry(entry: dict, current_urls: set[str], current_title: str) -> bool:
+    """Detect a portal reusing one source ID for a genuinely different vacancy."""
+    if not current_urls:
+        return False
+    previous_urls = _specific_url_aliases(entry.get("aliases") or [])
+    if not previous_urls or not current_urls.isdisjoint(previous_urls):
+        return False
+    previous_title = (entry.get("last_snapshot") or {}).get("title")
+    return _titles_materially_different(previous_title, current_title)
+
+
+def _claimed_source_id_reuse(
+    observations: list[dict],
+    source_ids: set[str],
+    current_urls: set[str],
+    current_title: str,
+) -> bool:
+    """Detect reused source IDs even when a legacy polluted state already has both URLs."""
+    if not source_ids or not current_urls:
+        return False
+    for observation in observations:
+        previous_source_ids = set(observation.get("source_ids") or [])
+        previous_urls = set(observation.get("urls") or [])
+        if not previous_source_ids or source_ids.isdisjoint(previous_source_ids):
+            continue
+        if not previous_urls or not current_urls.isdisjoint(previous_urls):
+            continue
+        if _titles_materially_different(observation.get("title"), current_title):
+            return True
+    return False
 
 
 def _aliases(job: dict) -> list[tuple[int, str]]:
@@ -272,6 +349,7 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
     counts = {"NEW": 0, "SEEN": 0, "MATERIALLY_CHANGED": 0, "REOPENED": 0}
     identity_split_repairs = 0
     claimed_state_identities: dict[str, set[str]] = {}
+    claimed_state_observations: dict[str, list[dict]] = {}
 
     for row in rows:
         quality_events: list[str] = []
@@ -279,36 +357,67 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
         aliases = [alias for _, alias in aliases_ranked]
         strong_aliases = [alias for rank, alias in aliases_ranked if rank <= 1]
         source_id_aliases = [alias for alias in strong_aliases if alias.startswith("source_id:")]
+        current_url_aliases = {alias for rank, alias in aliases_ranked if rank == 1}
         identity_signature = set(source_id_aliases or strong_aliases)
+        current_snapshot = _snapshot(row)
 
         # When a vacancy exposes a stable source ID or a vacancy-specific URL, never
         # fall back to title/company/location aliases. Repeated titles are common on
-        # institutional boards and must not merge distinct calls.
+        # institutional boards and must not merge distinct calls. A source ID is not
+        # trusted when the same portal reused it for a clearly different URL + title.
         match_candidates = (
             [(rank, alias) for rank, alias in aliases_ranked if rank <= 1]
             if strong_aliases else aliases_ranked
         )
         matched_id = None
+        reused_source_id_conflict = False
         for _, alias in match_candidates:
             candidate = index.get(alias)
-            if candidate:
-                matched_id = candidate
-                break
+            if not candidate:
+                continue
+            if alias.startswith("source_id:") and _source_id_conflicts_with_entry(
+                jobs[candidate], current_url_aliases, current_snapshot.get("title") or ""
+            ):
+                reused_source_id_conflict = True
+                continue
+            matched_id = candidate
+            break
 
-        current_snapshot = _snapshot(row)
-
-        # Self-heal legacy state pollution created by older weak-alias matching. If two
-        # current vacancies with disjoint strong identities resolve to the same state
-        # record, split the later vacancy into its own record and move its strong aliases.
+        # Self-heal legacy state pollution created by older weak-alias matching or by a
+        # portal reusing a source ID. The second case needs current-run observations:
+        # polluted legacy state may already contain both URLs, so stored aliases alone
+        # cannot reveal which URL belongs to which vacancy.
         repaired_split = False
+        reuse_claim_conflict = False
+        if matched_id is not None and source_id_aliases:
+            reuse_claim_conflict = _claimed_source_id_reuse(
+                claimed_state_observations.get(matched_id) or [],
+                set(source_id_aliases),
+                current_url_aliases,
+                current_snapshot.get("title") or "",
+            )
+
         if matched_id is not None and identity_signature:
             claimed = claimed_state_identities.get(matched_id)
-            if claimed is not None and identity_signature.isdisjoint(claimed):
+            disjoint_identity_conflict = claimed is not None and identity_signature.isdisjoint(claimed)
+            if disjoint_identity_conflict or reuse_claim_conflict:
                 legacy_entry = jobs[matched_id]
                 legacy_aliases = list(legacy_entry.get("aliases") or [])
-                legacy_entry["aliases"] = [a for a in legacy_aliases if a not in strong_aliases]
 
-                seed = source_id_aliases[0] if source_id_aliases else strong_aliases[0]
+                # For a confirmed reused source ID, retain that alias on both records so
+                # _alias_index marks it ambiguous on the next run. The vacancy-specific
+                # URL then disambiguates safely. For ordinary legacy weak-alias pollution,
+                # move all strong aliases exactly as before.
+                if reuse_claim_conflict:
+                    aliases_to_move = [a for a in strong_aliases if not a.startswith("source_id:")]
+                else:
+                    aliases_to_move = list(strong_aliases)
+                legacy_entry["aliases"] = [a for a in legacy_aliases if a not in aliases_to_move]
+
+                if reuse_claim_conflict and current_url_aliases:
+                    seed = sorted(current_url_aliases)[0]
+                else:
+                    seed = source_id_aliases[0] if source_id_aliases else strong_aliases[0]
                 new_state_id = _state_id_for_alias(seed)
                 suffix = 1
                 base_id = new_state_id
@@ -327,7 +436,11 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
                 }
 
                 for alias in strong_aliases:
-                    index[alias] = new_state_id
+                    existing = index.get(alias)
+                    if reuse_claim_conflict and alias.startswith("source_id:") and existing == matched_id:
+                        index[alias] = None
+                    else:
+                        index[alias] = new_state_id
                 for alias in aliases:
                     if alias in strong_aliases:
                         continue
@@ -346,7 +459,10 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
             status = "SEEN"
             reasons: list[str] = []
         elif matched_id is None:
-            seed = aliases[0] if aliases else "fallback:" + hashlib.sha1(json.dumps(current_snapshot, sort_keys=True).encode()).hexdigest()
+            if reused_source_id_conflict and current_url_aliases:
+                seed = sorted(current_url_aliases)[0]
+            else:
+                seed = aliases[0] if aliases else "fallback:" + hashlib.sha1(json.dumps(current_snapshot, sort_keys=True).encode()).hexdigest()
             matched_id = _state_id_for_alias(seed)
             suffix = 1
             base_id = matched_id
@@ -397,6 +513,11 @@ def apply_seen_state(rows: list[dict], state_path: Path, as_of: str) -> dict:
         entry = jobs[matched_id]
         if identity_signature:
             claimed_state_identities.setdefault(matched_id, set()).update(identity_signature)
+        claimed_state_observations.setdefault(matched_id, []).append({
+            "source_ids": set(source_id_aliases),
+            "urls": set(current_url_aliases),
+            "title": current_snapshot.get("title") or "",
+        })
         row["seen_status"] = status
         row["change_reasons"] = reasons
         row["state_events"] = quality_events
