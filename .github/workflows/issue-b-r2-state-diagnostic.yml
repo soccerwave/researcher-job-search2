@@ -65,3 +65,70 @@ jobs:
           if before != after:
               raise SystemExit("diagnostic mutated local downloaded state")
           PY
+      - name: Inspect immutable canonical archives for target history
+        run: |
+          python - <<'PY'
+          import boto3
+          import csv
+          import gzip
+          import io
+          import json
+          import os
+          from datetime import date, timedelta
+
+          endpoint = os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+              region_name="auto",
+          )
+          bucket = os.environ["R2_BUCKET"]
+          needle = "fimim3317-dopazo"
+          start = date(2026, 9, 16)
+          end = date(2026, 10, 4)
+          findings = []
+          scanned = 0
+
+          day = start
+          while day <= end:
+              prefix = f"runs/{day.isoformat()}/"
+              token = None
+              while True:
+                  kwargs = {"Bucket": bucket, "Prefix": prefix}
+                  if token:
+                      kwargs["ContinuationToken"] = token
+                  resp = s3.list_objects_v2(**kwargs)
+                  for obj in resp.get("Contents") or []:
+                      key = obj.get("Key") or ""
+                      if not key.endswith("/all_canonical.csv.gz"):
+                          continue
+                      scanned += 1
+                      payload = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+                      with gzip.GzipFile(fileobj=io.BytesIO(payload), mode="rb") as gz:
+                          text = io.TextIOWrapper(gz, encoding="utf-8-sig", newline="")
+                          for row in csv.DictReader(text):
+                              haystack = " ".join(str(v or "") for v in row.values()).lower()
+                              if needle not in haystack:
+                                  continue
+                              findings.append({
+                                  "archive": key,
+                                  "source": row.get("source"),
+                                  "id": row.get("id"),
+                                  "title": row.get("title"),
+                                  "company": row.get("company"),
+                                  "url": row.get("url"),
+                                  "state_id": row.get("state_id"),
+                                  "seen_status": row.get("seen_status"),
+                                  "first_seen": row.get("first_seen"),
+                                  "last_seen": row.get("last_seen"),
+                              })
+                  if not resp.get("IsTruncated"):
+                      break
+                  token = resp.get("NextContinuationToken")
+              day += timedelta(days=1)
+
+          print("ISSUE_B_ARCHIVES_SCANNED", scanned)
+          print("ISSUE_B_ARCHIVE_HISTORY", json.dumps(findings, ensure_ascii=False, sort_keys=True))
+          PY
