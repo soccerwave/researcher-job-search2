@@ -1,0 +1,80 @@
+name: Issue C Madrid Recovery Cap2 Experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-c-madrid-recovery-cap2-experiment.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-c-madrid-experiment
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUNBUFFERED: "1"
+      MADRID_RELAY_URL: ${{ vars.MADRID_RELAY_URL }}
+      MADRID_RELAY_TOKEN: ${{ secrets.MADRID_RELAY_TOKEN }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Apply experiment patch locally
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('sources/madrid_idi.py')
+          s=p.read_text(encoding='utf-8')
+          old='''        recovery_workers = min(workers, len(recovery_candidates))\n        with ThreadPoolExecutor(\n            max_workers=recovery_workers, thread_name_prefix="madrid-detail-recovery"\n        ) as pool:'''
+          new='''        # Recovery is deliberately gentler than the initial pass. The POEM upstream\n        # showed a materially higher 504 rate when transient failures were retried at\n        # the same three-way concurrency that caused the first burst. Keep the initial\n        # throughput cap at 3, but retry at most two offers concurrently.\n        recovery_workers = min(2, workers, len(recovery_candidates))\n        diag["relay_recovery_workers"] = recovery_workers\n        with ThreadPoolExecutor(\n            max_workers=recovery_workers, thread_name_prefix="madrid-detail-recovery"\n        ) as pool:'''
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          marker='''    diag["relay_recovery_failed"] = 0\n\n    if recovery_candidates:'''
+          repl='''    diag["relay_recovery_failed"] = 0\n    diag["relay_recovery_workers"] = 0\n\n    if recovery_candidates:'''
+          assert s.count(marker)==1
+          p.write_text(s.replace(marker,repl),encoding='utf-8')
+          PY
+      - name: Focused regression
+        run: |
+          pytest -q \
+            tests/test_v172_madrid_relay_backpressure.py \
+            tests/test_v173_madrid_deferred_relay_recovery.py \
+            tests/test_v201_madrid_cache_effective_age.py \
+            -k "not manifest"
+      - name: Run production-shaped experiment
+        run: |
+          test -n "${MADRID_RELAY_URL:-}"
+          test -n "${MADRID_RELAY_TOKEN:-}"
+          curl -fsS --max-time 10 "${MADRID_RELAY_URL%/}/health" >/dev/null
+          mkdir -p runtime/c
+          START=$(date +%s)
+          python run_live_sample.py --source madrid --no-state --out runtime/c | tee runtime/c/stdout.log
+          END=$(date +%s)
+          ELAPSED=$((END-START))
+          echo "ISSUE_C_EXPERIMENT_ELAPSED_SECONDS=$ELAPSED"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('runtime/c/run_summary.json').read_text())
+          m=d['source_diagnostics']['madrid']
+          keys=['detail_success','detail_failed','detail_status_counts','fresh_detail_failed',
+                'historical_fallback_used','historical_fallback_rejected','historical_detail_cache_expired',
+                'historical_detail_cache_carried_age','relay_recovery_candidates','relay_recovery_attempts',
+                'relay_recovery_workers','relay_recovery_success','relay_recovery_failed','coverage_complete']
+          print('ISSUE_C_EXPERIMENT',json.dumps({k:m.get(k) for k in keys},sort_keys=True))
+          PY
