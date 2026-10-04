@@ -1,0 +1,195 @@
+name: Issue B State Migration Dry Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-b-state-migration-dry-run.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-job-search
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Download production state read-only
+        run: |
+          mkdir -p runtime/state runtime/dryrun
+          python scripts/r2_store.py download-state --dest runtime/state/original.json
+          cp runtime/state/original.json runtime/state/candidate.json
+      - name: Build evidence-based migration candidate
+        run: |
+          python - <<'PY'
+          import boto3
+          import csv
+          import gzip
+          import hashlib
+          import io
+          import json
+          import os
+          from pathlib import Path
+
+          from jobbot.state import _aliases, _snapshot, _state_id_for_alias
+
+          state_path = Path("runtime/state/candidate.json")
+          original_path = Path("runtime/state/original.json")
+          expected_sha = "4a405a6d07c4195773abf67f3becb36904e03feabeb9d9dfee2432608d975215"
+          actual_sha = hashlib.sha256(original_path.read_bytes()).hexdigest()
+          assert actual_sha == expected_sha, (actual_sha, expected_sha)
+          state = json.loads(state_path.read_text(encoding="utf-8"))
+          assert len(state["jobs"]) == 3515
+
+          endpoint = os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+              region_name="auto",
+          )
+          bucket = os.environ["R2_BUCKET"]
+          archive_key = "runs/2026-10-04/37173668452-1/all_canonical.csv.gz"
+          payload = s3.get_object(Bucket=bucket, Key=archive_key)["Body"].read()
+          with gzip.GzipFile(fileobj=io.BytesIO(payload), mode="rb") as gz:
+              text = io.TextIOWrapper(gz, encoding="utf-8-sig", newline="")
+              archived = list(csv.DictReader(text))
+
+          hospital = [r for r in archived if r.get("source") == "Hospital del Mar Research Institute"]
+          row3412 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3412")]
+          row3433 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3433")]
+          assert len(row3412) == 1, len(row3412)
+          assert len(row3433) == 1, len(row3433)
+          row3412 = row3412[0]
+          row3433 = row3433[0]
+          assert row3412.get("id") == "FIMIM3317-DOPAZO"
+          assert row3433.get("id") == "FIMIM3317-DOPAZO"  # proves historical pollution
+          assert row3433.get("title") == "-"
+
+          current_id = "job_44f809ec70f4392a9a92"
+          current = state["jobs"][current_id]
+          assert current.get("first_seen") == "2026-09-16"
+          assert current.get("last_seen") == "2026-10-04"
+          assert int(current.get("times_seen") or 0) == 24
+          assert "bioinformatics" in str((current.get("last_snapshot") or {}).get("title") or "")
+
+          # Correct the current 3412 vacancy identity and undo the five duplicate
+          # sightings contributed by the distinct 3433 vacancy from Sep 30 through Oct 4.
+          corrected_3412 = {
+              "source": "Hospital del Mar Research Institute",
+              "id": "FIMIM3317-DOPAZO",
+              "title": row3412.get("title"),
+              "company": row3412.get("company"),
+              "location": row3412.get("location"),
+              "url": row3412.get("url"),
+              "trusted_full_detail_url": row3412.get("trusted_full_detail_url") or row3412.get("url"),
+          }
+          aliases3412 = [alias for _, alias in _aliases(corrected_3412)]
+          merged = list(current.get("aliases") or [])
+          for alias in aliases3412:
+              if alias not in merged:
+                  merged.append(alias)
+          current["aliases"] = merged
+          current["times_seen"] = 19
+
+          # Seed the real blank-reference vacancy using its vacancy-specific detail ID,
+          # which is what the corrected collector now emits.
+          corrected_3433 = {
+              "source": "Hospital del Mar Research Institute",
+              "id": "3433",
+              "title": row3433.get("title"),
+              "company": row3433.get("company"),
+              "location": row3433.get("location"),
+              "url": row3433.get("url"),
+              "trusted_full_detail_url": row3433.get("trusted_full_detail_url") or row3433.get("url"),
+              "modality": row3433.get("modality"),
+              "application_deadline": row3433.get("application_deadline"),
+              "application_status": row3433.get("application_status"),
+              "recommendation": row3433.get("recommendation"),
+              "score": row3433.get("score"),
+              "detail_status": row3433.get("detail_status"),
+              "full_detail": row3433.get("full_detail"),
+          }
+          aliases3433 = [alias for _, alias in _aliases(corrected_3433)]
+          source_alias3433 = "source_id:hospital_del_mar_research_institute:3433"
+          assert source_alias3433 in aliases3433
+          state3433 = _state_id_for_alias(source_alias3433)
+          assert state3433 not in state["jobs"]
+          state["jobs"][state3433] = {
+              "aliases": aliases3433,
+              "first_seen": "2026-09-30",
+              "last_seen": "2026-10-04",
+              "times_seen": 5,
+              "last_snapshot": _snapshot(corrected_3433),
+          }
+
+          assert len(state["jobs"]) == 3516
+          assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3412" in state["jobs"][current_id]["aliases"]
+          assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3433" in state["jobs"][state3433]["aliases"]
+          assert state3433 != current_id
+          state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+          print("ISSUE_B_CANDIDATE", json.dumps({
+              "current_3412_state_id": current_id,
+              "current_3412_times_seen": state["jobs"][current_id]["times_seen"],
+              "blank_ref_3433_state_id": state3433,
+              "blank_ref_3433_times_seen": state["jobs"][state3433]["times_seen"],
+              "state_jobs": len(state["jobs"]),
+          }, sort_keys=True))
+          PY
+      - name: Simulate current Hospital del Mar run against migrated copy only
+        run: |
+          cp runtime/state/candidate.json runtime/state/simulation.json
+          python run_live_sample.py \
+            --source hospitaldelmar \
+            --state-file runtime/state/simulation.json \
+            --out runtime/dryrun \
+            | tee runtime/dryrun_stdout.json
+      - name: Assert identities stay separate with no false NEW
+        run: |
+          python - <<'PY'
+          import csv
+          import hashlib
+          import json
+          from pathlib import Path
+
+          rows = list(csv.DictReader(Path("runtime/dryrun/all_canonical.csv").open(encoding="utf-8-sig", newline="")))
+          hospital = [r for r in rows if r.get("source") == "Hospital del Mar Research Institute"]
+          row3412 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3412")]
+          row3433 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3433")]
+          assert len(row3412) == 1, len(row3412)
+          assert len(row3433) == 1, len(row3433)
+          a, b = row3412[0], row3433[0]
+          assert a.get("id") == "FIMIM3317-DOPAZO"
+          assert b.get("id") == "3433"
+          assert a.get("state_id") == "job_44f809ec70f4392a9a92"
+          assert b.get("state_id") and b.get("state_id") != a.get("state_id")
+          assert a.get("seen_status") != "NEW", a.get("seen_status")
+          assert b.get("seen_status") != "NEW", b.get("seen_status")
+          candidate_sha = hashlib.sha256(Path("runtime/state/candidate.json").read_bytes()).hexdigest()
+          original_sha = hashlib.sha256(Path("runtime/state/original.json").read_bytes()).hexdigest()
+          assert original_sha == "4a405a6d07c4195773abf67f3becb36904e03feabeb9d9dfee2432608d975215"
+          print("ISSUE_B_LIVE_SIMULATION", json.dumps({
+              "3412": {"id": a.get("id"), "state_id": a.get("state_id"), "seen_status": a.get("seen_status")},
+              "3433": {"id": b.get("id"), "state_id": b.get("state_id"), "seen_status": b.get("seen_status")},
+              "candidate_sha256": candidate_sha,
+              "original_sha256": original_sha,
+              "r2_written": False,
+          }, sort_keys=True))
+          PY
