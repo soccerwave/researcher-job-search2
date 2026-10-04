@@ -7,7 +7,9 @@ on:
     paths:
       - ".github/workflows/v198-state-identity-smoke.yml"
       - "jobbot/state.py"
+      - "sources/hospital_del_mar.py"
       - "tests/test_v198_state_identity_collision.py"
+      - "tests/test_v148_hospital_del_mar.py"
 
 permissions:
   contents: read
@@ -30,4 +32,5 @@ jobs:
             tests/test_v162_durable_production_state.py \
             tests/test_v115_cross_source_dedupe.py \
             tests/test_v149_query_identity_dedupe.py \
+            tests/test_v148_hospital_del_mar.py \
             -k "not manifest"
