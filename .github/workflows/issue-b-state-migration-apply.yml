@@ -1,0 +1,199 @@
+name: Issue B State Migration Apply
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-b-state-migration-apply.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-job-search
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Migrate production state with backup and rollback guard
+        run: |
+          python - <<'PY'
+          import boto3
+          import csv
+          import gzip
+          import hashlib
+          import io
+          import json
+          import os
+
+          from jobbot.state import _aliases, _snapshot, _state_id_for_alias
+
+          BEFORE_SHA = "4a405a6d07c4195773abf67f3becb36904e03feabeb9d9dfee2432608d975215"
+          EXPECTED_AFTER_SHA = "c9ad15c63e28b6726df6cffa791654b79edeca685e5cb359f92a986967829805"
+          CURRENT_KEY = "state/current/seen_jobs.json"
+          BACKUP_KEY = "state/migrations/issue-b/2026-10-04-before-4a405a6d07c4.json"
+          ARCHIVE_KEY = "runs/2026-10-04/37173668452-1/all_canonical.csv.gz"
+
+          endpoint = os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+              region_name="auto",
+          )
+          bucket = os.environ["R2_BUCKET"]
+
+          original = s3.get_object(Bucket=bucket, Key=CURRENT_KEY)["Body"].read()
+          before_sha = hashlib.sha256(original).hexdigest()
+          assert before_sha == BEFORE_SHA, f"Production state changed; refusing stale migration: {before_sha}"
+          state = json.loads(original.decode("utf-8"))
+          assert len(state.get("jobs") or {}) == 3515
+
+          archived_payload = s3.get_object(Bucket=bucket, Key=ARCHIVE_KEY)["Body"].read()
+          with gzip.GzipFile(fileobj=io.BytesIO(archived_payload), mode="rb") as gz:
+              archived = list(csv.DictReader(io.TextIOWrapper(gz, encoding="utf-8-sig", newline="")))
+          hospital = [r for r in archived if r.get("source") == "Hospital del Mar Research Institute"]
+          row3412 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3412")]
+          row3433 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3433")]
+          assert len(row3412) == 1 and len(row3433) == 1
+          row3412, row3433 = row3412[0], row3433[0]
+          assert row3412.get("id") == "FIMIM3317-DOPAZO"
+          assert row3433.get("id") == "FIMIM3317-DOPAZO"
+          assert row3433.get("title") == "-"
+
+          current_id = "job_44f809ec70f4392a9a92"
+          current = state["jobs"][current_id]
+          assert current.get("first_seen") == "2026-09-16"
+          assert current.get("last_seen") == "2026-10-04"
+          assert int(current.get("times_seen") or 0) == 24
+          assert "bioinformatics" in str((current.get("last_snapshot") or {}).get("title") or "")
+
+          corrected_3412 = {
+              "source": "Hospital del Mar Research Institute",
+              "id": "FIMIM3317-DOPAZO",
+              "title": row3412.get("title"),
+              "company": row3412.get("company"),
+              "location": row3412.get("location"),
+              "url": row3412.get("url"),
+              "trusted_full_detail_url": row3412.get("trusted_full_detail_url") or row3412.get("url"),
+          }
+          aliases3412 = [alias for _, alias in _aliases(corrected_3412)]
+          merged = list(current.get("aliases") or [])
+          for alias in aliases3412:
+              if alias not in merged:
+                  merged.append(alias)
+          current["aliases"] = merged
+          current["times_seen"] = 19
+
+          corrected_3433 = {
+              "source": "Hospital del Mar Research Institute",
+              "id": "3433",
+              "title": row3433.get("title"),
+              "company": row3433.get("company"),
+              "location": row3433.get("location"),
+              "url": row3433.get("url"),
+              "trusted_full_detail_url": row3433.get("trusted_full_detail_url") or row3433.get("url"),
+              "modality": row3433.get("modality"),
+              "application_deadline": row3433.get("application_deadline"),
+              "application_status": row3433.get("application_status"),
+              "recommendation": row3433.get("recommendation"),
+              "score": row3433.get("score"),
+              "detail_status": row3433.get("detail_status"),
+              "full_detail": row3433.get("full_detail"),
+          }
+          aliases3433 = [alias for _, alias in _aliases(corrected_3433)]
+          source_alias3433 = "source_id:hospital_del_mar_research_institute:3433"
+          assert source_alias3433 in aliases3433
+          state3433 = _state_id_for_alias(source_alias3433)
+          assert state3433 == "job_97ad9a722e6b6988aa06"
+          assert state3433 not in state["jobs"]
+          state["jobs"][state3433] = {
+              "aliases": aliases3433,
+              "first_seen": "2026-09-30",
+              "last_seen": "2026-10-04",
+              "times_seen": 5,
+              "last_snapshot": _snapshot(corrected_3433),
+          }
+
+          assert len(state["jobs"]) == 3516
+          assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3412" in state["jobs"][current_id]["aliases"]
+          assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3433" in state["jobs"][state3433]["aliases"]
+          candidate = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+          after_sha = hashlib.sha256(candidate).hexdigest()
+          assert after_sha == EXPECTED_AFTER_SHA, (after_sha, EXPECTED_AFTER_SHA)
+
+          # Back up the exact pre-migration object before any mutation. If a backup with
+          # this deterministic key already exists, it must be byte-identical.
+          try:
+              existing_backup = s3.get_object(Bucket=bucket, Key=BACKUP_KEY)["Body"].read()
+              assert hashlib.sha256(existing_backup).hexdigest() == BEFORE_SHA
+          except s3.exceptions.NoSuchKey:
+              s3.put_object(Bucket=bucket, Key=BACKUP_KEY, Body=original, ContentType="application/json")
+          except Exception as exc:
+              code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+              if code in {"NoSuchKey", "404"}:
+                  s3.put_object(Bucket=bucket, Key=BACKUP_KEY, Body=original, ContentType="application/json")
+              else:
+                  raise
+
+          backup = s3.get_object(Bucket=bucket, Key=BACKUP_KEY)["Body"].read()
+          assert hashlib.sha256(backup).hexdigest() == BEFORE_SHA
+
+          # Re-read immediately before write: never overwrite a state object changed by
+          # another production run after this job began.
+          latest = s3.get_object(Bucket=bucket, Key=CURRENT_KEY)["Body"].read()
+          latest_sha = hashlib.sha256(latest).hexdigest()
+          assert latest_sha == BEFORE_SHA, f"Production state changed before write: {latest_sha}"
+
+          wrote = False
+          try:
+              s3.put_object(Bucket=bucket, Key=CURRENT_KEY, Body=candidate, ContentType="application/json")
+              wrote = True
+              remote = s3.get_object(Bucket=bucket, Key=CURRENT_KEY)["Body"].read()
+              remote_sha = hashlib.sha256(remote).hexdigest()
+              assert remote_sha == EXPECTED_AFTER_SHA, (remote_sha, EXPECTED_AFTER_SHA)
+              verified = json.loads(remote.decode("utf-8"))
+              assert len(verified["jobs"]) == 3516
+              assert verified["jobs"][current_id]["times_seen"] == 19
+              assert verified["jobs"][state3433]["times_seen"] == 5
+              assert verified["jobs"][state3433]["first_seen"] == "2026-09-30"
+              assert verified["jobs"][state3433]["last_seen"] == "2026-10-04"
+              assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3412" in verified["jobs"][current_id]["aliases"]
+              assert "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3433" in verified["jobs"][state3433]["aliases"]
+          except Exception:
+              if wrote:
+                  s3.put_object(Bucket=bucket, Key=CURRENT_KEY, Body=original, ContentType="application/json")
+                  restored = s3.get_object(Bucket=bucket, Key=CURRENT_KEY)["Body"].read()
+                  assert hashlib.sha256(restored).hexdigest() == BEFORE_SHA
+                  print("ISSUE_B_MIGRATION_ROLLBACK", BEFORE_SHA)
+              raise
+
+          print("ISSUE_B_MIGRATION_APPLIED", json.dumps({
+              "before_sha256": BEFORE_SHA,
+              "after_sha256": EXPECTED_AFTER_SHA,
+              "backup_key": BACKUP_KEY,
+              "state_jobs_before": 3515,
+              "state_jobs_after": 3516,
+              "3412_state_id": current_id,
+              "3412_times_seen": 19,
+              "3433_state_id": state3433,
+              "3433_times_seen": 5,
+              "verified_remote": True,
+          }, sort_keys=True))
+          PY
