@@ -1,10 +1,10 @@
 {
-  "production_version": "V2.06_EURAXESS_RESILIENT_TRANSPORT",
+  "production_version": "V2.07_EURAXESS_LINK_GUARDS",
   "scoring_engine": "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "EURAXESS Spain collector reliability repair. Live Spain and Job Offer facets are discovered and semantically validated; Spain remains a hard local constraint; pagination now follows live next links with bounded self-reset and duplicate-content recovery; the global fallback supports GET-first/POST-follow-up transport with transient retry and Retry-After-aware backoff; detail enrichment is paced and uses bounded 429 recovery. Existing taxonomy/card triage, historical coverage, caching, evaluator interfaces, and truthful coverage diagnostics are retained. Scoring remains frozen at V1.42.",
+  "scope": "EURAXESS Spain follow-up reliability repair. Listing parsing now rejects external absolute /jobs/<id> links unless they belong to an official EURAXESS host, preventing external vacancies such as science.hr from being misclassified as EURAXESS jobs. Next-page discovery now prefers same-origin links that remain on the current listing path (for EURAXESS, /jobs/search) before falling back to other same-origin Next links, preventing job-detail URLs from being mistaken for pagination while preserving generic cross-path fallback behavior. The V2.06 resilient transport, Spain hard constraint, throttling, caching, and truthful coverage diagnostics remain unchanged. Scoring remains frozen at V1.42.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V2.05_MADRID_RELAY_RELIABILITY"
+  "previous_production_version": "V2.06_EURAXESS_RESILIENT_TRANSPORT"
 }
