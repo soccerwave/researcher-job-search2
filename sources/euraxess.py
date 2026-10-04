@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import time
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from .common import JobRecord
 from .fetch_detail import fetch_url_text, make_retry_session
@@ -251,7 +252,13 @@ def parse_search_html(html: str, search_query: str = "") -> list[dict]:
     for link in soup.find_all("a", href=True):
         href = link.get("href", "")
         title = _clean(link.get_text(" ", strip=True))
-        m_id = re.search(r"/jobs/(\d+)(?:$|[/?#])", href)
+        parsed_href = urlparse(href)
+        if parsed_href.netloc and parsed_href.hostname not in {
+            "euraxess.ec.europa.eu", "www.euraxess.es", "euraxess.es"
+        }:
+            continue
+        href_path = parsed_href.path or href
+        m_id = re.search(r"/jobs/(\d+)(?:$|[/?#])", href_path)
         if not m_id or not title or len(title) < 8:
             continue
         job_id = m_id.group(1)

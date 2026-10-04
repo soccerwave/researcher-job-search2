@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from sources import euraxess
 from sources import euraxess_transport as transport
 
 
@@ -105,3 +106,29 @@ def test_detail_429_is_bounded_and_backed_off():
     assert status == 'OK_HTML'
     assert count == 2
     sleep.assert_called_once_with(30.0)
+
+def test_parser_rejects_external_jobs_path_links():
+    html = """
+    <div><a href="https://www.science.hr/jobs/244480/">External Research Job</a> JOB Spain External Org Posted on: 20 September 2026 Work Locations: Spain</div>
+    <div><a href="/jobs/470367">EURAXESS Research Job</a> JOB Spain Internal Org Posted on: 20 September 2026 Work Locations: Spain</div>
+    """
+    rows = euraxess.parse_search_html(html)
+    assert [row['id'] for row in rows] == ['470367']
+    assert rows[0]['url'] == 'https://euraxess.ec.europa.eu/jobs/470367'
+
+
+def test_next_listing_prefers_listing_path_over_job_detail():
+    html = """
+    <a rel="next" href="/jobs/470367">Next job</a>
+    <a rel="next" href="/jobs/search?page=1">Next</a>
+    """
+    assert transport._next_listing_url(
+        html, 'https://euraxess.ec.europa.eu/jobs/search?page=0'
+    ) == 'https://euraxess.ec.europa.eu/jobs/search?page=1'
+
+
+def test_next_listing_keeps_cross_path_fallback_when_no_listing_path_exists():
+    html = '<a rel="next" href="/alternative?page=2">Next</a>'
+    assert transport._next_listing_url(
+        html, 'https://euraxess.ec.europa.eu/jobs/search?page=1'
+    ) == 'https://euraxess.ec.europa.eu/alternative?page=2'

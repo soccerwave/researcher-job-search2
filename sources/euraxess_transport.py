@@ -18,6 +18,10 @@ def _clean(value) -> str:
 
 def _next_listing_url(html: str, base_url: str) -> str | None:
     soup = BeautifulSoup(html or '', 'html.parser')
+    base = urlparse(base_url)
+    listing_path = (base.path or SEARCH_PATH).rstrip('/') or '/'
+    preferred: list[str] = []
+    fallback: list[str] = []
     for a in soup.find_all('a', href=True):
         label = ' '.join([
             a.get_text(' ', strip=True), str(a.get('aria-label') or ''), str(a.get('title') or '')
@@ -31,9 +35,15 @@ def _next_listing_url(html: str, base_url: str) -> str | None:
         if href.startswith(('#', 'javascript:')):
             continue
         url = urljoin(base_url, href)
-        if urlparse(url).netloc == urlparse(base_url).netloc:
-            return url
-    return None
+        parsed = urlparse(url)
+        if parsed.netloc != base.netloc:
+            continue
+        candidate_path = (parsed.path or '/').rstrip('/') or '/'
+        if candidate_path == listing_path:
+            preferred.append(url)
+        else:
+            fallback.append(url)
+    return preferred[0] if preferred else (fallback[0] if fallback else None)
 
 
 def _discover_facets(html: str) -> tuple[str | None, str | None, str | None]:
