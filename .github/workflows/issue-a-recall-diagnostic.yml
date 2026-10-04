@@ -1,0 +1,91 @@
+name: Issue A recall delta diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-a-recall-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      CANONICAL_KEY: runs/2026-10-04/37173668452-1/all_canonical.csv.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Download Oct 4 snapshot
+        run: |
+          python - <<'PY'
+          import os,boto3
+          endpoint=os.environ.get('R2_ENDPOINT') or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3=boto3.client('s3',endpoint_url=endpoint,aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],region_name='auto')
+          s3.download_file(os.environ['R2_BUCKET'],os.environ['CANONICAL_KEY'],'/tmp/all_canonical.csv.gz')
+          PY
+      - name: Baseline target details
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv,gzip,json
+          from jobbot.evaluate import evaluate_job
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
+          for row in rows:
+              title=(row.get('title') or '')
+              if 'Captación y Gestión de Fondos' in title or 'PMO) Trainee' in title:
+                  r=evaluate_job(row)
+                  print('=== BASELINE TARGET ===')
+                  print(json.dumps({
+                    'title':title,'company':row.get('company') or row.get('employer'),'source':row.get('source'),
+                    'url':row.get('url') or row.get('job_url'),'detail_status':row.get('detail_status'),
+                    'evaluation':{k:r.get(k) for k in ('score','recommendation','job_family','domain_category','fit_signals','partial_matches','missing_requirements','blockers')},
+                    'detail':row.get('full_detail') or row.get('description') or ''
+                  },ensure_ascii=False,indent=2))
+          PY
+      - name: Apply staged V1.41 patch
+        run: python scripts/issue_a_patch.py
+      - name: Patched target details and signal trace
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv,gzip,json,re
+          from jobbot.evaluate import evaluate_job,detect_domain,detect_family
+          from jobbot.normalize import clean_text,normalize
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
+          for row in rows:
+              title=clean_text(row.get('title'))
+              if 'Captación y Gestión de Fondos' not in title and 'PMO) Trainee' not in title: continue
+              jd=clean_text(row.get('full_detail') or row.get('description'))
+              n=normalize(f'{title}\n{jd}')
+              family,patterns=detect_family(title)
+              domain,domain_hits,distant_hits=detect_domain(n)
+              probes={
+                'university_institution':r'\b(?:university|universidad|universitat)\b(?!\s+(?:degree|degrees|qualification|qualifications|education|studies|graduate|diploma))',
+                'research_institution':r'research institute|research centre|research center|centro de investigacion|centre de recerca|instituto de investigacion|research foundation|fundacion.{0,80}investigacion|fundacio.{0,80}recerca|hospital.{0,80}research|directorate of research|research and innovation|research teams?|equips? d investigacio|grups? d investigacio|equipos? de investigacion',
+                'management':r'gestion.{0,100}(?:proyectos?|projectes?|investigacion|recerca)|gestio.{0,100}(?:projectes?|recerca)|coordinacion.{0,100}(?:proyectos?|procesos?|cientific|tecnic)|coordinacio.{0,100}(?:projectes?|processos?|cientific|tecnic)|project (?:management|planning|coordination|monitoring)|planning.{0,80}(?:project|workplan)|monitoring.{0,80}(?:project|activities)',
+                'grant_calls':r'convocatorias?.{0,100}(?:ayudas?|competitivas?|internas?|financiacion)|convocatories?.{0,100}(?:ajuts?|competitives?|internes?|financament)|grant calls?|research grants?|funding calls?|funding opportunit|oportunidades? de financiacion|oportunitats? de financament|pre[- ]?award',
+                'research_proposal_context':r'(?:grant|funding|research|horizon|call).{0,80}proposal preparation|proposal preparation.{0,80}(?:grant|funding|research|horizon|call)|(?:financiacion|investigacion|convocatoria).{0,80}preparacion.{0,80}propuestas?|preparacion.{0,80}propuestas?.{0,80}(?:financiacion|investigacion|convocatoria)|(?:financament|recerca|convocatoria).{0,80}elaboracio.{0,80}propostes?|competitive (?:research|grant|funding) proposals?',
+                'research_funding_title':r'(?:captacion|gestion).{0,80}(?:fondos|financiacion).{0,120}(?:ciencia|investigacion|i\s*\+?d\s*\+?i)|(?:research|scientific).{0,50}(?:funding|grants?)|(?:grant|funding).{0,30}(?:manager|officer)',
+                'idi':r'i\s*\+?d\s*\+?i|research and innovation|investigacion y desarrollo',
+              }
+              hits={}
+              snippets={}
+              for name,pat in probes.items():
+                  m=re.search(pat,n,re.I)
+                  hits[name]=bool(m)
+                  if m: snippets[name]=n[max(0,m.start()-100):min(len(n),m.end()+180)]
+              r=evaluate_job(row)
+              print('=== PATCHED TARGET ===')
+              print(json.dumps({'title':title,'initial_family':family,'family_patterns':patterns,'initial_domain':domain,'domain_hits':domain_hits,'distant_hits':distant_hits,'probe_hits':hits,'snippets':snippets,'evaluation':{k:r.get(k) for k in ('score','recommendation','job_family','domain_category','fit_signals','partial_matches','missing_requirements','blockers')},'detail':jd},ensure_ascii=False,indent=2))
+          PY
