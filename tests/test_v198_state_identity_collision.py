@@ -21,6 +21,25 @@ def _job(job_id: str, url: str):
     }
 
 
+def _hospital_job(title: str, detail_id: str, *, job_id: str = "FIMIM3317-DOPAZO") -> dict:
+    url = f"https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id={detail_id}"
+    return {
+        "source": "Hospital del Mar Research Institute",
+        "id": job_id,
+        "title": title,
+        "company": "Hospital del Mar Research Institute",
+        "location": "Barcelona, Spain",
+        "url": url,
+        "trusted_full_detail_url": url,
+        "application_status": "OPEN",
+        "application_deadline": "",
+        "recommendation": "REVIEW",
+        "score": 70,
+        "detail_status": "OK_HTML",
+        "full_detail": ((title + " biomedical research project responsibilities. ") * 30),
+    }
+
+
 def test_v198_distinct_stable_ids_with_same_ctl_do_not_merge(tmp_path):
     state = tmp_path / "seen.json"
     a = _job("8353742", "https://jobs.vhir.org/jobs/8353742-vhir-msca-predoctoral-fellowship")
@@ -95,3 +114,116 @@ def test_v198_weak_identity_fallback_still_works_when_no_stable_identity(tmp_pat
 
     assert row2["seen_status"] == "SEEN"
     assert stats["SEEN"] == 1
+
+
+def test_issue_b_hospital_reused_source_id_with_new_url_and_title_gets_new_state(tmp_path):
+    state = tmp_path / "seen.json"
+    old = _hospital_job(
+        "Research Technician (Degree in Biomedical Sciences.)",
+        "3390",
+    )
+    apply_seen_state([old], state, "2026-09-01")
+
+    # This is the deterministic state ID produced by the reused source-ID alias that
+    # caused the production collision reported for FIMIM3317-DOPAZO.
+    assert old["state_id"] == "job_44f809ec70f4392a9a92"
+
+    current = _hospital_job(
+        "Researcher (PhD in Bioinformatics, Computational Biology, Life Sciences, Data Science, Mathematics, Computer Science or related disciplines).",
+        "3412",
+    )
+    stats = apply_seen_state([current], state, "2026-10-04")
+
+    assert current["state_id"] != old["state_id"]
+    assert current["seen_status"] == "NEW"
+    assert stats["NEW"] == 1
+    assert stats["state_jobs"] == 2
+
+    persisted = load_state(state)
+    aliases = [set(entry.get("aliases") or []) for entry in persisted["jobs"].values()]
+    assert any("url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3390" in item for item in aliases)
+    assert any("url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3412" in item for item in aliases)
+
+
+def test_issue_b_same_vacancy_keeps_state_across_tracking_and_minor_title_format_changes(tmp_path):
+    state = tmp_path / "seen.json"
+    first = _hospital_job(
+        "Researcher (PhD in Bioinformatics, Computational Biology or related disciplines).",
+        "3412",
+    )
+    apply_seen_state([first], state, "2026-10-03")
+
+    second = _hospital_job(
+        "Researcher [PhD in Bioinformatics and related disciplines]",
+        "3412",
+    )
+    second["url"] += "&utm_source=weekly-feed"
+    second["trusted_full_detail_url"] = second["url"]
+    stats = apply_seen_state([second], state, "2026-10-04")
+
+    assert second["state_id"] == first["state_id"]
+    assert stats["state_jobs"] == 1
+    assert second["seen_status"] in {"SEEN", "MATERIALLY_CHANGED"}
+
+
+def test_issue_b_polluted_reused_source_id_self_heals_when_both_vacancies_are_seen(tmp_path):
+    state = tmp_path / "seen.json"
+    old = _hospital_job("Research Technician (Degree in Biomedical Sciences.)", "3390")
+    apply_seen_state([old], state, "2026-09-01")
+
+    data = load_state(state)
+    polluted_id = old["state_id"]
+    entry = data["jobs"][polluted_id]
+    shared_source_alias = "source_id:hospital_del_mar_research_institute:fimim3317-dopazo"
+    new_url_alias = "url:https://researchmar.net/ofertes/en_detall-oferta-temporals.html?id=3412"
+    entry["aliases"].append(new_url_alias)
+    state.write_text(json.dumps(data), encoding="utf-8")
+
+    old_again = _hospital_job("Research Technician (Degree in Biomedical Sciences.)", "3390")
+    current = _hospital_job(
+        "Researcher (PhD in Bioinformatics, Computational Biology, Life Sciences, Data Science, Mathematics, Computer Science or related disciplines).",
+        "3412",
+    )
+    stats = apply_seen_state([old_again, current], state, "2026-10-04")
+
+    assert old_again["state_id"] != current["state_id"]
+    assert old_again["seen_status"] == "SEEN"
+    assert current["seen_status"] == "SEEN"
+    assert stats["IDENTITY_SPLIT_REPAIRS"] == 1
+    assert stats["state_jobs"] == 2
+
+    repaired = load_state(state)
+    old_aliases = repaired["jobs"][old_again["state_id"]]["aliases"]
+    current_aliases = repaired["jobs"][current["state_id"]]["aliases"]
+    assert shared_source_alias in old_aliases
+    assert shared_source_alias in current_aliases
+    assert new_url_alias not in old_aliases
+    assert new_url_alias in current_aliases
+
+
+def test_issue_b_reused_source_id_remains_disambiguated_on_next_run(tmp_path):
+    state = tmp_path / "seen.json"
+    old = _hospital_job("Research Technician (Degree in Biomedical Sciences.)", "3390")
+    current = _hospital_job(
+        "Researcher (PhD in Bioinformatics, Computational Biology, Life Sciences, Data Science, Mathematics, Computer Science or related disciplines).",
+        "3412",
+    )
+    apply_seen_state([old], state, "2026-09-01")
+    apply_seen_state([current], state, "2026-10-04")
+
+    old_id = old["state_id"]
+    current_id = current["state_id"]
+    assert old_id != current_id
+
+    old_next = _hospital_job("Research Technician (Degree in Biomedical Sciences.)", "3390")
+    current_next = _hospital_job(
+        "Researcher (PhD in Bioinformatics, Computational Biology, Life Sciences, Data Science, Mathematics, Computer Science or related disciplines).",
+        "3412",
+    )
+    stats = apply_seen_state([old_next, current_next], state, "2026-10-05")
+
+    assert old_next["state_id"] == old_id
+    assert current_next["state_id"] == current_id
+    assert old_next["seen_status"] == "SEEN"
+    assert current_next["seen_status"] == "SEEN"
+    assert stats["state_jobs"] == 2
