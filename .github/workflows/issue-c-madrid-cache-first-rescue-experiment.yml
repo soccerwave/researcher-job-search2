@@ -1,0 +1,88 @@
+name: Issue C Madrid Cache First Rescue Experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-c-madrid-cache-first-rescue-experiment.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-c-madrid-experiment
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUNBUFFERED: "1"
+      MADRID_RELAY_URL: ${{ vars.MADRID_RELAY_URL }}
+      MADRID_RELAY_TOKEN: ${{ secrets.MADRID_RELAY_TOKEN }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Apply cache-first plus bounded rescue locally
+        run: |
+          cat > /tmp/patch.py <<'PY'
+          from pathlib import Path
+          p=Path('sources/madrid_idi_history.py')
+          s=p.read_text(encoding='utf-8')
+          old='''def collect(*args, diagnostics: dict | None = None, **kwargs) -> list[dict]:\n    diag = diagnostics if diagnostics is not None else {}\n    rows = base.collect(*args, diagnostics=diag, **kwargs)\n    _apply_historical_fallback(rows, diag)\n    return rows\n'''
+          new='''def _prefill_recent_history(rows: list[dict], diagnostics: dict) -> tuple[list[dict], list[dict]]:\n    \"\"\"Use verified recent Full JD cache before hitting the fragile POEM relay.\n\n    Eligibility stays strict: same stable identity, normalized title/company match, and\n    the existing two-day effective-age policy. Cache hits remain explicitly CACHE.\n    \"\"\"\n    path = _download_latest_canonical()\n    cache, cache_diag = _load_cache(path)\n    diagnostics.update(cache_diag)\n    diagnostics[\"historical_prefill_attempted\"] = len(rows)\n    diagnostics[\"historical_prefill_used\"] = 0\n    diagnostics[\"historical_prefill_rejected\"] = 0\n    misses: list[dict] = []\n    hits: list[dict] = []\n    for row in rows:\n        previous = _match_current_to_history(row, cache) if cache else None\n        previous_detail = str((previous or {}).get(\"full_detail\") or \"\").strip()\n        if not previous or not previous_detail:\n            diagnostics[\"historical_prefill_rejected\"] += 1\n            misses.append(row)\n            continue\n        resolved_url = (_clean(previous.get(\"detail_resolved_url\"))\n                        or _clean(previous.get(\"trusted_full_detail_url\"))\n                        or _clean(previous.get(\"url\")))\n        row[\"full_detail\"] = previous_detail\n        row[\"detail_status\"] = \"CACHE\"\n        row[\"detail_fetch_status\"] = \"CACHE_PREFILL\"\n        row[\"detail_source\"] = \"historical_prefill\"\n        row[\"detail_resolution_method\"] = \"historical_prefill\"\n        row[\"detail_age_days\"] = int(previous.get(\"_detail_age_days\") or 0)\n        row[\"trusted_full_detail_source\"] = \"Madrid I+D+i historical prefill\"\n        if resolved_url:\n            row[\"detail_resolved_url\"] = resolved_url\n            row[\"trusted_full_detail_url\"] = resolved_url\n        diagnostics[\"historical_prefill_used\"] += 1\n        hits.append(row)\n    return hits, misses\n\n\ndef _rescue_remaining_fresh_misses(rows: list[dict], diagnostics: dict) -> None:\n    \"\"\"One bounded third relay attempt, only for no-cache transient failures.\"\"\"\n    import time\n    from concurrent.futures import ThreadPoolExecutor, as_completed\n\n    candidates = [row for row in rows if base._is_retryable_relay_failure(_clean(row.get(\"detail_status\")))]\n    diagnostics[\"final_rescue_candidates\"] = len(candidates)\n    diagnostics[\"final_rescue_attempts\"] = 0\n    diagnostics[\"final_rescue_success\"] = 0\n    diagnostics[\"final_rescue_failed\"] = 0\n    if not candidates:\n        return\n    time.sleep(2.0)\n    diagnostics[\"final_rescue_attempts\"] = len(candidates)\n    workers = min(2, len(candidates))\n    diagnostics[\"final_rescue_workers\"] = workers\n    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=\"madrid-final-rescue\") as pool:\n        futures = {pool.submit(base._resolve_detail_row, i, row, (10, 45)): row for i, row in enumerate(candidates)}\n        for future in as_completed(futures):\n            row = futures[future]\n            old_status = _clean(row.get(\"detail_status\"))\n            try:\n                _, detail, status, resolved_url, method = future.result()\n            except Exception as exc:\n                detail, status, resolved_url, method = \"\", f\"DETAIL_WORKER_FAILED: {type(exc).__name__}: {exc}\", \"\", \"worker_failed\"\n            row[\"full_detail\"] = detail\n            row[\"detail_status\"] = status\n            row[\"detail_resolution_method\"] = method\n            row[\"final_rescue_attempted\"] = True\n            if resolved_url:\n                row[\"detail_resolved_url\"] = resolved_url\n            if detail and status in base._OK_DETAIL_STATUSES:\n                diagnostics[\"final_rescue_success\"] += 1\n                diagnostics[\"detail_failed\"] = max(0, int(diagnostics.get(\"detail_failed\", 0) or 0) - 1)\n                diagnostics[\"detail_success\"] = int(diagnostics.get(\"detail_success\", 0) or 0) + 1\n                counts = dict(diagnostics.get(\"detail_status_counts\") or {})\n                if old_status in counts:\n                    counts[old_status] = max(0, int(counts.get(old_status, 0) or 0) - 1)\n                    if counts[old_status] == 0:\n                        counts.pop(old_status, None)\n                counts[status] = int(counts.get(status, 0) or 0) + 1\n                diagnostics[\"detail_status_counts\"] = counts\n            else:\n                diagnostics[\"final_rescue_failed\"] += 1\n\n\ndef collect(*args, diagnostics: dict | None = None, **kwargs) -> list[dict]:\n    diag = diagnostics if diagnostics is not None else {}\n    enrich_detail = bool(kwargs.pop(\"enrich_detail\", True))\n    if not enrich_detail:\n        return base.collect(*args, diagnostics=diag, enrich_detail=False, **kwargs)\n\n    rows = base.collect(*args, diagnostics=diag, enrich_detail=False, **kwargs)\n    hits, misses = _prefill_recent_history(rows, diag)\n    cache_count = len(hits)\n    diag[\"detail_success\"] = 0\n    diag[\"detail_failed\"] = 0\n    diag[\"detail_attempts\"] = 0\n    diag[\"detail_status_counts\"] = {}\n    diag[\"fresh_detail_attempts\"] = len(misses)\n\n    if misses:\n        workers = int(kwargs.get(\"detail_workers\", 1) or 1)\n        base._enrich_detail_rows(misses, diag, timeout=(10, 45), detail_workers=workers)\n        _rescue_remaining_fresh_misses(misses, diag)\n\n    counts = dict(diag.get(\"detail_status_counts\") or {})\n    if cache_count:\n        counts[\"CACHE\"] = int(counts.get(\"CACHE\", 0) or 0) + cache_count\n    diag[\"detail_status_counts\"] = counts\n    diag[\"detail_success\"] = int(diag.get(\"detail_success\", 0) or 0) + cache_count\n    _apply_historical_fallback(rows, diag)\n    return rows\n'''
+          assert s.count(old) == 1
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
+          python /tmp/patch.py
+      - name: Focused regressions
+        env:
+          MADRID_RELAY_URL: ""
+          MADRID_RELAY_TOKEN: ""
+        run: |
+          pytest -q \
+            tests/test_v172_madrid_relay_backpressure.py \
+            tests/test_v173_madrid_deferred_relay_recovery.py \
+            tests/test_v201_madrid_cache_age.py \
+            -k "not manifest"
+      - name: Run production-shaped experiment
+        run: |
+          test -n "${MADRID_RELAY_URL:-}"
+          test -n "${MADRID_RELAY_TOKEN:-}"
+          curl -fsS --max-time 10 "${MADRID_RELAY_URL%/}/health" >/dev/null
+          mkdir -p runtime/c
+          START=$(date +%s)
+          python run_live_sample.py --source madrid --no-state --out runtime/c | tee runtime/c/stdout.log
+          END=$(date +%s)
+          echo "ISSUE_C_RESCUE_ELAPSED_SECONDS=$((END-START))"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('runtime/c/run_summary.json').read_text())
+          m=d['source_diagnostics']['madrid']
+          keys=['pages_fetched','parsed_cards','unique_cards','card_count_mismatches','detail_attempts','fresh_detail_attempts',
+                'detail_success','detail_failed','detail_status_counts','historical_detail_cache_eligible',
+                'historical_detail_cache_expired','historical_detail_cache_carried_age','historical_prefill_used',
+                'historical_prefill_rejected','relay_recovery_candidates','relay_recovery_success','relay_recovery_failed',
+                'final_rescue_candidates','final_rescue_attempts','final_rescue_workers','final_rescue_success','final_rescue_failed',
+                'historical_fallback_used','historical_fallback_rejected','coverage_complete']
+          out={k:m.get(k) for k in keys}
+          print('ISSUE_C_RESCUE',json.dumps(out,sort_keys=True))
+          assert m['coverage_complete'] is True
+          assert m['pages_fetched'] == 10 and m['unique_cards'] == 100
+          assert not m['card_count_mismatches']
+          assert m['historical_detail_cache_expired'] == 0
+          assert m['historical_detail_cache_carried_age'] >= 1
+          assert m['detail_success'] + m['detail_failed'] == 100, (m['detail_success'], m['detail_failed'])
+          PY
