@@ -1,0 +1,182 @@
+name: Issue A baseline-aware final validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-a-fix-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-apply:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      CANONICAL_KEY: runs/2026-10-04/37173668452-1/all_canonical.csv.gz
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Baseline full-suite failures
+        run: |
+          set +e
+          pytest -q > /tmp/baseline_pytest.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/baseline_pytest.txt
+          echo "BASELINE_PYTEST_EXIT=$code"
+          python - <<'PY'
+          import re,json
+          text=open('/tmp/baseline_pytest.txt',encoding='utf-8').read()
+          failures=sorted(set(re.findall(r'^FAILED\s+([^\s]+)',text,re.M)))
+          json.dump(failures,open('/tmp/baseline_failures.json','w'),indent=2)
+          print('BASELINE_FAILURE_COUNT',len(failures))
+          for x in failures: print('BASELINE_FAIL',x)
+          PY
+      - name: Download immutable Oct 4 canonical snapshot
+        run: |
+          python - <<'PY'
+          import os,boto3
+          endpoint=os.environ.get('R2_ENDPOINT') or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3=boto3.client('s3',endpoint_url=endpoint,aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],region_name='auto')
+          s3.download_file(os.environ['R2_BUCKET'],os.environ['CANONICAL_KEY'],'/tmp/all_canonical.csv.gz')
+          PY
+      - name: Save V1.40 baseline replay
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv,gzip,json
+          from jobbot.evaluate import evaluate_job
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
+          out=[]
+          for i,row in enumerate(rows):
+              r=evaluate_job(row)
+              out.append({'i':i,'title':row.get('title',''),'company':row.get('company','') or row.get('employer',''),'source':row.get('source',''),'score':r['score'],'recommendation':r['recommendation'],'job_family':r['job_family'],'domain_category':r['domain_category']})
+          json.dump(out,open('/tmp/v140.json','w',encoding='utf-8'),ensure_ascii=False)
+          print('baseline_rows',len(out))
+          PY
+      - name: Apply V1.41 patch and recall refinement
+        run: |
+          python scripts/issue_a_patch.py
+          python scripts/issue_a_patch_v2.py
+      - name: Verify scoring freeze
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jobbot.production import assert_scoring_freeze
+          result=assert_scoring_freeze(Path('.').resolve())
+          print(result)
+          assert result['ok'] and result['mismatches']==[]
+          assert result['scoring_engine']=='V1.41_ROLE_AWARE_PROJECT_PM_PRECISION'
+          PY
+      - name: Required evaluator and lineage regressions must pass
+        run: |
+          pytest -q \
+            tests/test_scoring_v141_project_pm_precision.py \
+            tests/test_v140_research_pm_recall.py \
+            tests/test_v188_evaluator_calibration.py \
+            tests/test_realworld_calibration.py \
+            tests/test_noise_regressions.py \
+            tests/test_v116_regulated_trial_experience.py \
+            tests/test_v18_precision_regressions.py \
+            tests/test_v19_precision_regressions.py \
+            tests/test_v158_sant_pau.py \
+            tests/test_v186_euraxess_recall_health.py \
+            tests/test_v194_biocat_detail_resolution.py \
+            tests/test_v156_academicpositions.py
+      - name: Full suite must introduce no new failures
+        run: |
+          set +e
+          pytest -q > /tmp/post_pytest.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/post_pytest.txt
+          echo "POST_PYTEST_EXIT=$code"
+          python - <<'PY'
+          import re,json
+          before=set(json.load(open('/tmp/baseline_failures.json')))
+          text=open('/tmp/post_pytest.txt',encoding='utf-8').read()
+          after=set(re.findall(r'^FAILED\s+([^\s]+)',text,re.M))
+          new=sorted(after-before)
+          fixed=sorted(before-after)
+          print('BASELINE_FAILURE_COUNT',len(before))
+          print('POST_FAILURE_COUNT',len(after))
+          print('NEW_FAILURE_COUNT',len(new))
+          for x in new: print('NEW_FAIL',x)
+          print('PREEXISTING_FAILURES_FIXED',len(fixed))
+          for x in fixed: print('FIXED_FAIL',x)
+          assert not new,new
+          PY
+      - name: Replay Oct 4 and enforce precision plus recall invariants
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv,gzip,json,re
+          from collections import Counter
+          from jobbot.evaluate import evaluate_job
+          old=json.load(open('/tmp/v140.json',encoding='utf-8'))
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
+          new=[]
+          for i,row in enumerate(rows):
+              r=evaluate_job(row)
+              new.append({'i':i,'title':row.get('title',''),'company':row.get('company','') or row.get('employer',''),'source':row.get('source',''),'score':r['score'],'recommendation':r['recommendation'],'job_family':r['job_family'],'domain_category':r['domain_category']})
+          changed=[]
+          for a,b in zip(old,new):
+              if any(a[k]!=b[k] for k in ('score','recommendation','job_family','domain_category')):
+                  changed.append({'title':b['title'],'company':b['company'],'source':b['source'],'old_score':a['score'],'new_score':b['score'],'old_rec':a['recommendation'],'new_rec':b['recommendation'],'old_family':a['job_family'],'new_family':b['job_family'],'old_domain':a['domain_category'],'new_domain':b['domain_category']})
+          print('changed_rows',len(changed))
+          print('old_distribution',dict(Counter(x['recommendation'] for x in old)))
+          print('new_distribution',dict(Counter(x['recommendation'] for x in new)))
+          for x in changed: print(json.dumps(x,ensure_ascii=False))
+          def find_one(term):
+              hits=[x for x in new if term.lower() in (x['title']+' '+x['company']).lower()]
+              assert len(hits)==1,(term,hits)
+              return hits[0]
+          evonik=find_one('Evonik'); iglubit=find_one('IGLUBIT'); fps=find_one('Captación y Gestión de Fondos'); merz=find_one('Project Manager (PMO) Trainee')
+          for x in (evonik,iglubit):
+              assert x['recommendation']=='SKIP' and x['score']<50 and x['job_family']!='research_project_management',x
+          assert fps['job_family']=='research_project_management' and fps['domain_category']=='ADJACENT',fps
+          assert fps['score']>=65 and fps['recommendation'] in {'REVIEW','APPLY','STRONG_APPLY'},fps
+          assert merz['recommendation']=='SKIP' and merz['job_family']!='research_project_management',merz
+          allowed={('Project Manager','Evonik'),('Healthcare Presales & Project Manager (m/f/d)','IGLUBIT')}
+          bad=[]
+          for a,b in zip(old,new):
+              if a['recommendation'] in {'REVIEW','APPLY','STRONG_APPLY'} and b['score']<65 and (b['title'],b['company']) not in allowed: bad.append((a,b))
+          print('unexpected_actionable_demotions',len(bad)); assert not bad,bad
+          research_title=re.compile(r'research project|scientific project|proyectos? europeos?|projectes? de recerca|pre[- ]?award|gestion cientifica|gestion de investigacion|captacion y gestion de fondos',re.I)
+          losses=[]
+          for a,b in zip(old,new):
+              if research_title.search(b['title']) and a['job_family']=='research_project_management' and b['job_family']!='research_project_management': losses.append((a,b))
+          print('explicit_research_pm_family_losses',len(losses)); assert not losses,losses
+          PY
+      - name: Commit validated V1.41 release and remove staging files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f \
+            .github/workflows/issue-a-diagnostic.yml \
+            .github/workflows/issue-a-fix.yml \
+            .github/workflows/issue-a-fix-v2.yml \
+            .github/workflows/issue-a-fix-v3.yml \
+            .github/workflows/issue-a-fix-v4.yml \
+            .github/workflows/issue-a-recall-diagnostic.yml \
+            scripts/issue_a_patch.py \
+            scripts/issue_a_patch_v2.py
+          git add jobbot/evaluate.py jobbot/production.py tests/test_scoring_v141_project_pm_precision.py tests/test_v186_euraxess_recall_health.py SCORING_FREEZE_V141.json PRODUCTION_VERSION.json
+          git commit -m "V2.02: role-aware project manager precision with recall protection"
+          git push origin main
+          echo "VALIDATED_COMMIT=$(git rev-parse HEAD)"
