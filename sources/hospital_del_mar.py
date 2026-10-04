@@ -49,7 +49,13 @@ def _detail_id(url: str) -> str:
 
 
 def _context_for_anchor(a) -> str:
-    """Return the smallest nearby block carrying the vacancy's date/reference metadata."""
+    """Return the smallest nearby block carrying this vacancy's posting metadata.
+
+    The posting date is present for every call, while a small number of official calls
+    legitimately have a blank Ref field. Stopping at the nearest dated container keeps
+    a blank-reference vacancy from inheriting a FIMIM reference from a neighbouring
+    sibling when we walk further up the DOM.
+    """
     node = a
     best = _clean(a.get_text(" ", strip=True))
     for _ in range(7):
@@ -60,8 +66,7 @@ def _context_for_anchor(a) -> str:
         if not text:
             continue
         best = text
-        # The official listing prints a posting date and FIMIM reference with each call.
-        if DATE_RE.search(text) and REF_RE.search(text):
+        if DATE_RE.search(text):
             return text
     return best
 
