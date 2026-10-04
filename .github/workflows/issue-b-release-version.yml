@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt -r requirements-cloud.txt
       - name: Update production lineage only
         run: |
           python - <<'PY'
@@ -53,11 +55,12 @@ jobs:
           import jobbot.production as p
           assert p.PRODUCTION_VERSION == "V2.04_STATE_IDENTITY_COLLISION_REPAIR"
           assert p.FROZEN_ENGINE == "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL"
-          assert p.verify_scoring_freeze(Path("."))["ok"] is True
+          result = p.verify_scoring_freeze(Path("."))
+          assert result["ok"] is True, result
           data = json.loads(Path("PRODUCTION_VERSION.json").read_text(encoding="utf-8"))
           assert data["production_version"] == p.PRODUCTION_VERSION
           assert data["scoring_engine"] == p.FROZEN_ENGINE
-          print("ISSUE_B_RELEASE_LINEAGE_OK", p.PRODUCTION_VERSION, p.FROZEN_ENGINE)
+          print("ISSUE_B_RELEASE_LINEAGE_OK", p.PRODUCTION_VERSION, p.FROZEN_ENGINE, result)
           PY
       - name: Commit release lineage
         run: |
