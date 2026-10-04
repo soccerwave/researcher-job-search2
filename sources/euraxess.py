@@ -8,6 +8,7 @@ import time
 from bs4 import BeautifulSoup
 from .common import JobRecord
 from .fetch_detail import fetch_url_text, make_retry_session
+from .euraxess_transport import fetch_spain_pages, fetch_detail_resilient
 
 # EURAXESS Spain's official "Search Jobs" link currently points to the shared
 # EURAXESS jobs search with the Spain country facet job_country:788.
@@ -357,175 +358,19 @@ def _fetch_mode(
     cutoff_date: date | None = None,
     request_delay: float = 0.0,
 ) -> tuple[list[dict], dict]:
-    """Fetch public result pages and locally validate country metadata.
-
-    When ``cutoff_date`` is provided, page traversal stops once a complete dated page
-    is older than the requested historical window. Cards older than the cutoff are
-    excluded. Undated cards are retained rather than silently dropped.
-    """
-    session = make_retry_session(total_retries=4, backoff_factor=1.25)
-    search_url = f"{base}/jobs/search"
-    all_cards: dict[str, dict] = {}
-    page_errors: list[str] = []
-    pages_fetched = 0
-    parsed_total = 0
-    dated_cards_seen = 0
-    undated_cards_seen = 0
-    newest_seen: date | None = None
-    oldest_seen: date | None = None
-    stop_reason = "page_limit"
-    page_fingerprints: set[tuple[str, ...]] = set()
-    pagination_repeat_detected = False
-    repeated_pages: list[int] = []
-
-    try:
-        for page in range(max(1, pages)):
-            try:
-                r = session.get(
-                    search_url,
-                    params=_page_params(page, use_spain_facet),
-                    timeout=timeout,
-                    allow_redirects=True,
-                )
-                r.raise_for_status()
-                page_jobs = parse_search_html(r.text)
-                pages_fetched += 1
-                if not page_jobs:
-                    # A later empty page means we likely reached the end; an empty first
-                    # page is still recorded so another base/mode can be attempted.
-                    if page > 0:
-                        break
-                    continue
-
-                # A transient EURAXESS/CDN regression can return page 1 repeatedly for
-                # different ?page=N URLs. Count transport as fetched, but do not count or
-                # trust duplicate card pages as coverage.
-                fingerprint = tuple(sorted(
-                    str(job.get("id") or job.get("url") or "")
-                    for job in page_jobs
-                    if job.get("id") or job.get("url")
-                ))
-                if fingerprint and fingerprint in page_fingerprints:
-                    pagination_repeat_detected = True
-                    repeated_pages.append(page)
-                    stop_reason = "pagination_repeat"
-                    break
-                if fingerprint:
-                    page_fingerprints.add(fingerprint)
-
-                parsed_total += len(page_jobs)
-                page_dates: list[date] = []
-                for job in page_jobs:
-                    posted = _parse_posted_date(job.get("date"))
-                    if posted is None:
-                        undated_cards_seen += 1
-                    else:
-                        dated_cards_seen += 1
-                        page_dates.append(posted)
-                        newest_seen = posted if newest_seen is None or posted > newest_seen else newest_seen
-                        oldest_seen = posted if oldest_seen is None or posted < oldest_seen else oldest_seen
-
-                    # Historical mode filters out dated cards older than the cutoff.
-                    # Undated cards are kept so the audit can expose them.
-                    if cutoff_date is not None and posted is not None and posted < cutoff_date:
-                        continue
-                    key = job.get("url") or f"{job.get('title','')}::{job.get('company','')}"
-                    all_cards.setdefault(key, job)
-
-                # EURAXESS newest-jobs pages are reverse chronological. Once an entire
-                # parsed page is older than cutoff, later pages cannot add in-window jobs.
-                if cutoff_date is not None and page_dates and max(page_dates) < cutoff_date:
-                    stop_reason = "cutoff_reached"
-                    break
-
-                # Historical calibration deliberately paces requests so a long backfill
-                # is less likely to trip transient rate limiting. Normal/live mode keeps
-                # the old fast behavior because request_delay defaults to zero.
-                if request_delay > 0 and page < max(1, pages) - 1:
-                    time.sleep(request_delay)
-            except Exception as exc:
-                page_errors.append(f"page {page}: {type(exc).__name__}: {exc}")
-                # Do not skip a failed page during historical calibration: doing so would
-                # create an invisible hole in the backfill. Retry happens inside the
-                # session; if it still fails, stop and report incomplete coverage.
-                stop_reason = "first_page_error" if page == 0 else "page_fetch_error"
-                break
-    finally:
-        session.close()
-
-    cards = list(all_cards.values())
-    spain_cards = [j for j in cards if _is_spain(j)]
-    ratio = (len(spain_cards) / len(cards)) if cards else 0.0
-    # The Spain facet is advisory only. If it returns mostly non-Spain cards,
-    # treat it as not honored and force the generic-feed fallback.
-    facet_honored = (
-        not use_spain_facet
-        or parsed_total == 0
-        or ratio >= 0.75
+    """Fetch EURAXESS with semantic facet validation and resilient pagination."""
+    return fetch_spain_pages(
+        base=base,
+        pages=pages,
+        timeout=timeout,
+        use_spain_facet=use_spain_facet,
+        parse_search_html=parse_search_html,
+        is_spain=_is_spain,
+        parse_posted_date=_parse_posted_date,
+        cutoff_date=cutoff_date,
+        request_delay=request_delay,
+        make_session=make_retry_session,
     )
-
-    if cutoff_date is None:
-        coverage_complete = (
-            not page_errors
-            and not pagination_repeat_detected
-            and facet_honored
-            and stop_reason in {"page_limit", "cutoff_reached"}
-        )
-    else:
-        historical_window_reached = (
-            stop_reason == "cutoff_reached"
-            or (oldest_seen is not None and oldest_seen <= cutoff_date)
-        )
-        coverage_complete = (
-            historical_window_reached
-            and not page_errors
-            and not pagination_repeat_detected
-            and facet_honored
-        )
-
-    coverage_warning = ""
-    if not coverage_complete:
-        reasons: list[str] = []
-        if page_errors:
-            reasons.append(f"page_errors={len(page_errors)}")
-        if pagination_repeat_detected:
-            reasons.append(f"pagination_repeat_pages={repeated_pages}")
-        if use_spain_facet and not facet_honored:
-            reasons.append(f"spain_facet_not_honored ratio={ratio:.3f}")
-        if cutoff_date is not None and not (
-            stop_reason == "cutoff_reached"
-            or (oldest_seen is not None and oldest_seen <= cutoff_date)
-        ):
-            reasons.append(
-                f"cutoff_not_reached cutoff={cutoff_date.isoformat()} "
-                f"oldest_seen={oldest_seen.isoformat() if oldest_seen else 'unknown'}"
-            )
-        coverage_warning = "EURAXESS coverage incomplete: " + (
-            "; ".join(reasons) if reasons else f"stop_reason={stop_reason}"
-        )
-    return spain_cards, {
-        "base": base,
-        "mode": "official_spain_facet" if use_spain_facet else "generic_feed_local_spain_filter",
-        "pages_requested": max(1, pages),
-        "pages_fetched": pages_fetched,
-        "parsed_cards": parsed_total,
-        "unique_cards": len(cards),
-        "spain_cards": len(spain_cards),
-        "spain_ratio": round(ratio, 3),
-        "page_errors": page_errors,
-        "cutoff_date": cutoff_date.isoformat() if cutoff_date else None,
-        "newest_seen_date": newest_seen.isoformat() if newest_seen else None,
-        "oldest_seen_date": oldest_seen.isoformat() if oldest_seen else None,
-        "dated_cards_seen": dated_cards_seen,
-        "undated_cards_seen": undated_cards_seen,
-        "stop_reason": stop_reason,
-        "pagination_repeat_detected": pagination_repeat_detected,
-        "repeated_pages": repeated_pages,
-        "facet_honored": facet_honored,
-        "coverage_complete": coverage_complete,
-        "coverage_warning": coverage_warning,
-    }
-
 
 def _get_spain_feed(
     pages: int, timeout: tuple[int, int], *, cutoff_date: date | None = None
@@ -762,7 +607,7 @@ def collect(
     # detail requests by default and persist every resolved page immediately. This
     # lets a rerun resume rather than refetching successful JDs.
     if detail_request_delay is None:
-        detail_request_delay = 2.5 if cutoff is not None else 0.0
+        detail_request_delay = 3.0
     persistent_detail_cache = _load_json(DETAIL_CACHE_PATH, {})
     if not isinstance(persistent_detail_cache, dict):
         persistent_detail_cache = {}
@@ -789,20 +634,24 @@ def collect(
                     status = "DEFERRED_RATE_LIMIT"
                     detail_deferred += 1
                 else:
-                    detail, status = fetch_url_text(
-                        url, timeout=timeout_tuple, title_hint=job.get("title", ""), session=session
+                    detail, status, requests_used = fetch_detail_resilient(
+                        fetch_url_text, url, timeout=timeout_tuple,
+                        title_hint=job.get("title", ""), session=session,
+                        pace_seconds=max(0.0, float(detail_request_delay or 0.0)),
                     )
-                    detail_network_requests += 1
+                    detail_network_requests += requests_used
 
                     # If the shared endpoint returns a portal/search page, try the
                     # Spain-domain equivalent once before giving up on the detail.
                     if detail and status in {"OK_HTML", "OK_PDF", "OK", "CACHE"} and not _valid_euraxess_detail(detail):
                         alt = re.sub(r"^https://euraxess\.ec\.europa\.eu", "https://www.euraxess.es", url)
                         if alt != url:
-                            alt_detail, alt_status = fetch_url_text(
-                                alt, timeout=timeout_tuple, title_hint=job.get("title", ""), session=session
+                            alt_detail, alt_status, alt_requests = fetch_detail_resilient(
+                                fetch_url_text, alt, timeout=timeout_tuple,
+                                title_hint=job.get("title", ""), session=session,
+                                pace_seconds=max(0.0, float(detail_request_delay or 0.0)),
                             )
-                            detail_network_requests += 1
+                            detail_network_requests += alt_requests
                             if alt_detail and alt_status in {"OK_HTML", "OK_PDF", "OK", "CACHE"} and _valid_euraxess_detail(alt_detail):
                                 detail, status = alt_detail, alt_status
 

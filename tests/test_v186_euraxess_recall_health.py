@@ -62,6 +62,7 @@ def test_v193_repeated_result_page_marks_coverage_incomplete(monkeypatch):
     page = """
     <div><a href="/jobs/123456">Research Project Manager</a>
     JOB Spain Example University Posted on: 20 September 2026 Work Locations: Spain</div>
+    <a rel="next" href="/jobs/search?page=1">Next</a>
     """
 
     class Session:
