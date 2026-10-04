@@ -1,10 +1,10 @@
 {
-  "production_version": "V2.01_MADRID_EFFECTIVE_CACHE_AGE",
-  "scoring_engine": "V1.40_RESEARCH_PM_TITLE_VARIANT_RECALL",
+  "production_version": "V2.02_ROLE_AWARE_PROJECT_PM_PRECISION",
+  "scoring_engine": "V1.41_ROLE_AWARE_PROJECT_PM_PRECISION",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Madrid historical-detail cache correctness fix only. CACHE rows now carry forward prior detail_age_days so effective Full JD age cannot reset on each daily canonical snapshot. The 2-day historical fallback limit is enforced on original-detail age rather than snapshot age. New diagnostics count carried-age rows and expired cache entries. V2.00 InfoJobs watch-only, V1.99 evaluator calibration, V1.98 state collision guard and V1.97 FPS OK_API integration remain active. Scoring engine is unchanged.",
+  "scope": "Evaluator precision repair for generic Project Manager roles. V1.41 preserves explicit institutional/research project-management recall while preventing industrial/CAPEX/manufacturing, facilities/construction, presales/commercial IT and customer-implementation delivery roles from being promoted by leaky university/proposal signals. V2.01 Madrid effective-cache-age logic, V2.00 InfoJobs watch-only, V1.98 state collision guard and V1.97 FPS OK_API integration remain active.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V2.00_INFOJOBS_WATCH_ONLY"
+  "previous_production_version": "V2.01_MADRID_EFFECTIVE_CACHE_AGE"
 }

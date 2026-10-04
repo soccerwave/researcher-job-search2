@@ -1,0 +1,21 @@
+{
+  "scoring_engine": "V1.41_ROLE_AWARE_PROJECT_PM_PRECISION",
+  "package": "V2.02_ROLE_AWARE_PROJECT_PM_PRECISION",
+  "status": "ACTIVE_PRODUCTION_CANDIDATE",
+  "note": "V1.41 adds a role-aware precision guard for generic project delivery, removes bare university mentions as research-institution anchors, contextualizes proposal evidence, and adds explicit research-funding title/duty anchoring so legitimate I+D+i funding-management recall is preserved.",
+  "tests_planned": [
+    "tests/test_scoring_v141_project_pm_precision.py",
+    "tests/test_v140_research_pm_recall.py",
+    "tests/test_v188_evaluator_calibration.py",
+    "existing evaluator regression suite",
+    "2026-10-04 immutable canonical replay"
+  ],
+  "sha256": {
+    "jobbot/evaluate.py": "1ced4b801b2426a1354aa936b7c1b5d7d43b4955aaa21197c917d2c9c7d401b9",
+    "jobbot/rules.py": "012147f8fc6493e8801fd184977638365346a658e79c224058e4271d670e611b",
+    "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
+    "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
+    "config/profile.json": "95015e6333f880e16dc922f26a613a41769c452141ddca9c753ac1af6732ebcb",
+    "jobbot/availability.py": "1aa348f8598d57327275a51a9909ce64fc8992b9e26b6e8a8b8f6f5eba54b700"
+  }
+}

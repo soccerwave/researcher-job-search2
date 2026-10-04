@@ -499,6 +499,100 @@ def hard_blockers(text: str, title: str) -> list[str]:
     return sorted(set(blockers))
 
 
+def _generic_project_delivery_mismatch(title: str, text: str) -> tuple[bool, str]:
+    """Detect operational/commercial project-delivery roles that are not research PM.
+
+    This guard is deliberately role-aware rather than a keyword blacklist. It only acts
+    on generic project-manager/coordinator/officer titles, exempts explicit research/
+    scientific/EU-research titles, and also exempts generic titles whose JD contains a
+    coherent set of real research-project duties (funders, consortium/work packages,
+    scientific coordination, or research-funding proposal work).
+    """
+    t = normalize(title)
+    n = normalize(text)
+
+    generic_project_title = bool(re.search(
+        r"\bproject (?:manager|coordinator|officer)\b", t, re.I
+    ))
+    if not generic_project_title:
+        return False, ""
+
+    explicit_research_title = bool(re.search(
+        r"\b(?:research|scientific|clinical research|health research) project (?:manager|coordinator|officer)\b|"
+        r"\b(?:eu|european|horizon europe) project (?:manager|coordinator|officer)\b|"
+        r"\bgestor(?: a)? de proyectos? (?:de investigacion|cientificos?|europeos?)\b|"
+        r"\bcoordinador(?: a)? de (?:proyectos? de investigacion|projectes? de recerca|proyectos? europeos?|projectes? europeus?)\b|"
+        r"\btecnico(?: a)? de gestion (?:cientifica|de (?:la )?investigacion)\b",
+        t, re.I
+    ))
+    if explicit_research_title:
+        return False, ""
+
+    research_duty_signals = [
+        bool(re.search(r"horizon europe|european commission|\berc\b|\bmsca\b|eu4health", n, re.I)),
+        bool(re.search(r"international consortium|consortium partners?|work packages?", n, re.I)),
+        bool(re.search(
+            r"scientific coordination|coordinacion cientifica|coordinacio cientifica|"
+            r"technical coordination.{0,80}(?:research|study)|coordinacion tecnica.{0,80}(?:investigacion|estudio)|"
+            r"coordinacio tecnica.{0,80}(?:recerca|estudi)",
+            n, re.I
+        )),
+        bool(re.search(
+            r"pre[- ]?award|research grants?|grant calls?|funding calls?|funding opportunities?|"
+            r"convocatorias?.{0,80}(?:financiacion|ayudas?|competitivas?)|"
+            r"convocatories?.{0,80}(?:financament|ajuts?|competitives?)",
+            n, re.I
+        )),
+        bool(re.search(
+            r"(?:grant|funding|research|horizon).{0,80}proposal|"
+            r"proposal.{0,80}(?:grant|funding|research|horizon)|"
+            r"(?:financiacion|investigacion|convocatoria).{0,80}propuestas?|"
+            r"propuestas?.{0,80}(?:financiacion|investigacion|convocatoria)",
+            n, re.I
+        )),
+    ]
+    if sum(research_duty_signals) >= 2:
+        return False, ""
+
+    industrial_signals = [
+        bool(re.search(r"\bcapex\b|capital project|plant design|production scale|manufacturing|factory|production line", n, re.I)),
+        bool(re.search(r"industrial engineering|process engineering|commissioning|engineering delivery|equipment installation|production equipment", n, re.I)),
+        bool(re.search(r"construction|procurement|supply chain|contractor management", n, re.I)),
+    ]
+    industrial_delivery = industrial_signals[0] and sum(industrial_signals) >= 2
+
+    facilities_signals = [
+        bool(re.search(r"facilit(?:y|ies)|office relocation|building refurbishment|fit[- ]?out|site works?|construction", n, re.I)),
+        bool(re.search(r"procurement|vendor management|contractor management|maintenance", n, re.I)),
+        bool(re.search(r"building budget|construction budget|facilities scheduling|commissioning", n, re.I)),
+    ]
+    facilities_delivery = sum(facilities_signals) >= 2
+
+    commercial_signals = [
+        bool(re.search(r"pre[- ]?sales|preventa|sales support|commercial|\brfp\b|\brfi\b|ofertas? comerciales?", n, re.I)),
+        bool(re.search(r"software|information technology|\bit services?\b|\bict\b|cloud infrastructure|enterprise systems?|technology projects?|proyectos? tecnologicos?|projectes? tecnologics?", n, re.I)),
+        bool(re.search(r"implementation|implantacion|implantacio|rollout|deployment|onboarding|service delivery|customer delivery|entrega final|lliurament final", n, re.I)),
+        bool(re.search(r"customers?|clients?|clientes?|cliente interno|cliente externo|stakeholder satisfaction", n, re.I)),
+    ]
+    commercial_it_delivery = bool(
+        commercial_signals[0] and (commercial_signals[1] or commercial_signals[2])
+        or commercial_signals[1] and commercial_signals[2] and commercial_signals[3]
+    )
+
+    explicit_it_title = bool(re.search(
+        r"\b(?:it|ict) project manager\b|\bproject manager.{0,25}(?:it|ict|information technology|software|cloud)\b",
+        t, re.I
+    ))
+
+    if industrial_delivery:
+        return True, "industrial/CAPEX/manufacturing project delivery"
+    if facilities_delivery:
+        return True, "facilities/construction project delivery"
+    if explicit_it_title or commercial_it_delivery:
+        return True, "commercial/IT/customer implementation project delivery"
+    return False, ""
+
+
 def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     title = clean_text(job.get("title"))
     jd = clean_text(job.get("full_detail") or job.get("description"))
@@ -508,6 +602,7 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     blockers = hard_blockers(jd, title)
     domain_category, domain_hits, distant_hits = detect_domain(norm)
     family, _ = detect_family(title)
+    project_delivery_mismatch, project_delivery_mismatch_reason = _generic_project_delivery_mismatch(title, norm)
 
     # Slash-gendered Spanish/Catalan titles normalize to forms such as
     # "investigador a clinico a". Prefer the clinical-research family over the generic
@@ -520,7 +615,7 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     # and genuine research-project context. This lets a role such as an exercise/
     # physical-activity Horizon Europe project manager score correctly without letting
     # generic SAP/energy/business project management into the target family.
-    if family == "unclear" and re.search(r"\bproject (?:manager|coordinator|officer)\b", normalize(title), re.I):
+    if family == "unclear" and not project_delivery_mismatch and re.search(r"\bproject (?:manager|coordinator|officer)\b", normalize(title), re.I):
         research_context = bool(re.search(
             r"\bresearch\b|\bscientific\b|\bclinical\b|\bhorizon europe\b|\binternational consortium\b|\beu project",
             norm, re.I
@@ -573,14 +668,27 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
         r"\btecnico(?: a)? de gestion cientifica\b|"
         r"\btecnico(?: a)? de gestion de (?:la )?investigacion\b|"
         r"\bcoordinador(?: a)? de projectes? de recerca\b|"
-        r"\bcoordinador(?: a)? de proyectos? de investigacion\b",
+        r"\bcoordinador(?: a)? de proyectos? de investigacion\b|"
+        r"(?:captacion|gestion).{0,80}(?:fondos|financiacion).{0,140}(?:ciencia|investigacion|recerca|i d i)|(?:research|scientific).{0,60}(?:funding|grants?)|(?:grant|funding).{0,40}(?:manager|officer|coordinator)",
+        title_norm_for_pm, re.I
+    ))
+    generic_project_management_title_cue = bool(re.search(
+        r"\bproject (?:manager|coordinator|officer)\b",
+        title_norm_for_pm, re.I
+    ))
+    research_specific_management_title_cue = bool(re.search(
+        r"\b(?:research|scientific|clinical research|health research) project (?:manager|coordinator|officer)\b|"
+        r"\b(?:eu|european|horizon europe) project (?:manager|coordinator|officer)\b|"
+        r"gestor(?: a)? de proyectos? europeos?|gestor(?: a)? pre[- ]?award|"
+        r"tecnico(?: a)? de gestion cientifica|tecnico(?: a)? de gestion de (?:la )?investigacion|"
+        r"coordinador(?: a)? de projectes? de recerca|coordinador(?: a)? de proyectos? de investigacion",
         title_norm_for_pm, re.I
     ))
 
     institutional_research_management_signals = [
         bool(re.search(
             r"research institute|research centre|research center|centro de investigacion|"
-            r"centre de recerca|instituto de investigacion|universit|research foundation|"
+            r"centre de recerca|instituto de investigacion|research foundation|"
             r"fundacion.{0,80}investigacion|fundacio.{0,80}recerca|hospital.{0,80}research|"
             r"directorate of research|research and innovation|research teams?|"
             r"equips? d investigacio|grups? d investigacio|equipos? de investigacion",
@@ -600,8 +708,13 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
             r"convocatories?.{0,100}(?:ajuts?|competitives?|internes?|financament)|"
             r"grant calls?|research grants?|funding calls?|funding opportunit|"
             r"oportunidades? de financiacion|oportunitats? de financament|"
-            r"pre[- ]?award|proposal preparation|preparacion.{0,80}propuestas?|"
-            r"elaboracio.{0,80}propostes?|competitive proposals?",
+            r"pre[- ]?award|"
+            r"(?:grant|funding|research|horizon|call).{0,80}proposal preparation|"
+            r"proposal preparation.{0,80}(?:grant|funding|research|horizon|call)|"
+            r"(?:financiacion|investigacion|convocatoria).{0,80}preparacion.{0,80}propuestas?|"
+            r"preparacion.{0,80}propuestas?.{0,80}(?:financiacion|investigacion|convocatoria)|"
+            r"(?:financament|recerca|convocatoria).{0,80}elaboracio.{0,80}propostes?|"
+            r"competitive (?:research|grant|funding) proposals?",
             norm, re.I
         )),
         bool(re.search(
@@ -627,8 +740,16 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     ]
 
     institutional_signal_count = sum(institutional_research_management_signals)
-    if family == "unclear" and (
-        (research_management_title_cue and institutional_signal_count >= 2)
+    institutional_research_anchor = any(
+        institutional_research_management_signals[i] for i in (0, 2, 3, 5, 6)
+    )
+    if family == "unclear" and not project_delivery_mismatch and (
+        (research_specific_management_title_cue and institutional_signal_count >= 2)
+        or (
+            generic_project_management_title_cue
+            and institutional_research_anchor
+            and institutional_signal_count >= 2
+        )
         or institutional_signal_count >= 5
     ):
         family = "research_project_management"
@@ -636,15 +757,21 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     strong_research_management_title_cue = bool(re.search(
         r"gestor(?: a)? de proyectos? europeos?|gestor(?: a)? pre[- ]?award|"
         r"tecnico(?: a)? de gestion cientifica|tecnico(?: a)? de gestion de (?:la )?investigacion|"
-        r"coordinador(?: a)? de projectes? de recerca|coordinador(?: a)? de proyectos? de investigacion",
+        r"coordinador(?: a)? de projectes? de recerca|coordinador(?: a)? de proyectos? de investigacion|"
+        r"(?:captacion|gestion).{0,80}(?:fondos|financiacion).{0,140}(?:ciencia|investigacion|recerca|i d i)|(?:research|scientific).{0,60}(?:funding|grants?)|(?:grant|funding).{0,40}(?:manager|officer|coordinator)",
         title_norm_for_pm, re.I
     ))
     institutional_research_management_context = bool(
         family == "research_project_management"
-        and institutional_research_management_signals[0]
         and (
-            institutional_signal_count >= 3
-            or (strong_research_management_title_cue and institutional_signal_count >= 2)
+            (
+                institutional_research_management_signals[0]
+                and institutional_signal_count >= 3
+            )
+            or (
+                strong_research_management_title_cue
+                and institutional_signal_count >= 2
+            )
         )
         and domain_category == "UNCLEAR"
     )
@@ -655,7 +782,7 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     # Some public-sector/research-centre adverts use descriptive or grade-based titles
     # rather than a canonical role name. Infer a family from the full JD only when several
     # role-defining signals co-occur; this is deliberately stricter than title matching.
-    if family == "unclear" and domain_category in {"CORE", "ADJACENT"}:
+    if family == "unclear" and not project_delivery_mismatch and domain_category in {"CORE", "ADJACENT"}:
         eu_pm_signals = [
             bool(re.search(r"(?:project )?(?:management|coordination|monitoring).{0,100}(?:project|activities|study)|support.{0,60}(?:management|coordination)", norm, re.I)),
             bool(re.search(r"deliverables?|milestones?|work packages?|action points?", norm, re.I)),
@@ -899,6 +1026,12 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
 
     if communication_specialist_role:
         missing.append("Role is primarily specialist research/science communication rather than research project management")
+        score = min(score, 49)
+
+    if project_delivery_mismatch:
+        missing.append(
+            "Role is primarily " + project_delivery_mismatch_reason + " rather than research project management"
+        )
         score = min(score, 49)
 
     if score >= 90:

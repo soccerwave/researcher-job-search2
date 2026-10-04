@@ -46,8 +46,8 @@ def test_euraxess_healthy_empty_feed_is_not_failed(monkeypatch):
 
 
 def test_collector_fixes_keep_scoring_engine_frozen():
-    assert production.FROZEN_ENGINE == "V1.39_INSTITUTIONAL_RESEARCH_PM_RECALL"
-    assert production.FREEZE_MANIFEST == "SCORING_FREEZE_V139.json"
+    assert production.FROZEN_ENGINE == "V1.41_ROLE_AWARE_PROJECT_PM_PRECISION"
+    assert production.FREEZE_MANIFEST == "SCORING_FREEZE_V141.json"
 
 
 def test_v193_repeated_result_page_marks_coverage_incomplete(monkeypatch):
