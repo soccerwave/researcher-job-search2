@@ -1,10 +1,13 @@
 name: V1.98 State Identity Smoke
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - ".github/workflows/v198-state-identity-smoke.yml"
+      - "jobbot/state.py"
+      - "tests/test_v198_state_identity_collision.py"
 
 permissions:
   contents: read
@@ -25,4 +28,6 @@ jobs:
             tests/test_v198_state_identity_collision.py \
             tests/test_v174_state_detail_degradation_guard.py \
             tests/test_v162_durable_production_state.py \
+            tests/test_v115_cross_source_dedupe.py \
+            tests/test_v149_query_identity_dedupe.py \
             -k "not manifest"
