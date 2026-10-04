@@ -1,0 +1,69 @@
+name: Issue B Release Version
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-b-release-version.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Update production lineage only
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          production = Path("jobbot/production.py")
+          text = production.read_text(encoding="utf-8")
+          old = 'PRODUCTION_VERSION = "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL"'
+          new = 'PRODUCTION_VERSION = "V2.04_STATE_IDENTITY_COLLISION_REPAIR"'
+          assert text.count(old) == 1
+          production.write_text(text.replace(old, new), encoding="utf-8")
+
+          path = Path("PRODUCTION_VERSION.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          assert data["production_version"] == "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL"
+          assert data["scoring_engine"] == "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL"
+          data.update({
+              "production_version": "V2.04_STATE_IDENTITY_COLLISION_REPAIR",
+              "scoring_engine": "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL",
+              "scope": "Issue B state-identity collision repair. Vacancy-specific identity query parameters are preserved; reused source IDs with materially different vacancy URLs and titles no longer merge; Hospital del Mar blank-Ref calls use their detail ID instead of inheriting a neighbouring reference; production seen-state collision history was migrated with backup and verification. Scoring remains frozen at V1.42.",
+              "previous_production_version": "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL",
+          })
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Verify lineage and frozen scoring
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import jobbot.production as p
+          assert p.PRODUCTION_VERSION == "V2.04_STATE_IDENTITY_COLLISION_REPAIR"
+          assert p.FROZEN_ENGINE == "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL"
+          assert p.verify_scoring_freeze(Path("."))["ok"] is True
+          data = json.loads(Path("PRODUCTION_VERSION.json").read_text(encoding="utf-8"))
+          assert data["production_version"] == p.PRODUCTION_VERSION
+          assert data["scoring_engine"] == p.FROZEN_ENGINE
+          print("ISSUE_B_RELEASE_LINEAGE_OK", p.PRODUCTION_VERSION, p.FROZEN_ENGINE)
+          PY
+      - name: Commit release lineage
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add jobbot/production.py PRODUCTION_VERSION.json
+          git diff --cached --check
+          git commit -m "Release V2.04 state identity collision repair"
+          git push origin HEAD:main
