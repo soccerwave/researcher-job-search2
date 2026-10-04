@@ -9,6 +9,13 @@ BOARD_FIXTURE = '''
 </ul></main></body></html>
 '''
 
+BLANK_REF_SIBLING_FIXTURE = '''
+<html><body><main><ul>
+<li><span>15-09-2026</span><h4><a href="/ofertes/en_detall-oferta-temporals.html?id=3412">Researcher (PhD in Bioinformatics, Computational Biology, Life Sciences, Data Science, Mathematics, Computer Science or related disciplines).</a></h4><p>Ref.: FIMIM3317-DOPAZO</p></li>
+<li><span>14-09-2026</span><h4><a href="/ofertes/en_detall-oferta-temporals.html?id=3433">-</a></h4><p>Ref.:</p><p>Systems neurology and neurotherapeutics group.</p></li>
+</ul></main></body></html>
+'''
+
 DETAIL_FIXTURE = '''
 <html><body><main><h1>Temporary calls</h1><p>28-08-2026</p>
 <h3>Research Technician (Bachelor's degree in Health Sciences/Sciences or equivalent qualification.)</h3>
@@ -27,6 +34,20 @@ def test_hospital_del_mar_board_parser_reads_job_specific_calls_without_treating
     assert rows[0]["posted_date"] == "28-08-2026"
     assert rows[0]["date"] == ""
     assert rows[0]["url"].endswith("en_detall-oferta-temporals.html?id=3419")
+
+
+def test_hospital_del_mar_blank_ref_does_not_inherit_neighbouring_fimim_reference():
+    rows = hospital_del_mar.parse_board_html(BLANK_REF_SIBLING_FIXTURE)
+    assert len(rows) == 2
+    dopazo, blank_ref = rows
+    assert dopazo["id"] == "FIMIM3317-DOPAZO"
+    assert dopazo["url"].endswith("?id=3412")
+    # The real id=3433 page has a blank official Ref field. The vacancy-specific query
+    # ID is the safe fallback identity; it must never inherit FIMIM3317-DOPAZO above.
+    assert blank_ref["id"] == "3433"
+    assert blank_ref["posted_date"] == "14-09-2026"
+    assert blank_ref["url"].endswith("?id=3433")
+    assert "FIMIM3317-DOPAZO" not in blank_ref["description"]
 
 
 def test_hospital_del_mar_posting_date_does_not_close_job_via_existing_availability_parser():
