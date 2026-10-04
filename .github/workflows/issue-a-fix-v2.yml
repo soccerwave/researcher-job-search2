@@ -1,0 +1,156 @@
+name: Issue A role-aware PM precision repair v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-a-fix-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-apply:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      CANONICAL_KEY: runs/2026-10-04/37173668452-1/all_canonical.csv.gz
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-cloud.txt
+      - name: Download immutable Oct 4 canonical snapshot
+        run: |
+          python - <<'PY'
+          import os, boto3
+          endpoint = os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client("s3", endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"], region_name="auto")
+          s3.download_file(os.environ["R2_BUCKET"], os.environ["CANONICAL_KEY"], "/tmp/all_canonical.csv.gz")
+          PY
+      - name: Save V1.40 replay baseline
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv, gzip, json
+          from jobbot.evaluate import evaluate_job
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f:
+              rows=list(csv.DictReader(f))
+          out=[]
+          for i,row in enumerate(rows):
+              r=evaluate_job(row)
+              out.append({"i":i,"title":row.get("title",""),"company":row.get("company","") or row.get("employer",""),
+                          "source":row.get("source",""),"score":r["score"],"recommendation":r["recommendation"],
+                          "job_family":r["job_family"],"domain_category":r["domain_category"]})
+          json.dump(out,open('/tmp/v140_oct4.json','w',encoding='utf-8'),ensure_ascii=False)
+          print('baseline_rows',len(out))
+          PY
+      - name: Apply V1.41 patch and versioning
+        run: |
+          python scripts/issue_a_patch.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('tests/test_scoring_v141_project_pm_precision.py')
+          s=p.read_text(encoding='utf-8')
+          old='    assert result["score"] >= 50\n\n\ndef _assert_not_reviewed_as_research_pm(result):'
+          new='    assert not any("rather than research project management" in x for x in result["missing_requirements"])\n\n\ndef _assert_not_reviewed_as_research_pm(result):'
+          assert old in s
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Verify new scoring freeze
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jobbot.production import assert_scoring_freeze
+          result=assert_scoring_freeze(Path('.').resolve())
+          print(result)
+          assert result["ok"] and result["mismatches"] == []
+          PY
+      - name: Run required Issue A regression pack
+        run: |
+          pytest -q \
+            tests/test_scoring_v141_project_pm_precision.py \
+            tests/test_v140_research_pm_recall.py \
+            tests/test_v188_evaluator_calibration.py \
+            tests/test_realworld_calibration.py \
+            tests/test_noise_regressions.py \
+            tests/test_v116_regulated_trial_experience.py \
+            tests/test_v18_precision_regressions.py \
+            tests/test_v19_precision_regressions.py
+      - name: Replay immutable Oct 4 snapshot and audit deltas
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE" python - <<'PY'
+          import csv,gzip,json,re
+          from collections import Counter
+          from jobbot.evaluate import evaluate_job
+          old=json.load(open('/tmp/v140_oct4.json',encoding='utf-8'))
+          with gzip.open('/tmp/all_canonical.csv.gz','rt',encoding='utf-8-sig',newline='') as f:
+              rows=list(csv.DictReader(f))
+          new=[]
+          for i,row in enumerate(rows):
+              r=evaluate_job(row)
+              new.append({"i":i,"title":row.get("title",""),"company":row.get("company","") or row.get("employer",""),
+                          "source":row.get("source",""),"score":r["score"],"recommendation":r["recommendation"],
+                          "job_family":r["job_family"],"domain_category":r["domain_category"]})
+          changed=[]
+          for a,b in zip(old,new):
+              if any(a[k]!=b[k] for k in ("score","recommendation","job_family","domain_category")):
+                  changed.append({"title":b["title"],"company":b["company"],"source":b["source"],
+                                  "old_score":a["score"],"new_score":b["score"],"old_rec":a["recommendation"],"new_rec":b["recommendation"],
+                                  "old_family":a["job_family"],"new_family":b["job_family"],"old_domain":a["domain_category"],"new_domain":b["domain_category"]})
+          print('changed_rows',len(changed))
+          print('old_distribution',dict(Counter(x['recommendation'] for x in old)))
+          print('new_distribution',dict(Counter(x['recommendation'] for x in new)))
+          for x in changed:
+              print(json.dumps(x,ensure_ascii=False))
+          targets=[]
+          for r in new:
+              hay=(r['title']+' '+r['company']).lower()
+              if 'evonik' in hay or 'iglubit' in hay:
+                  targets.append(r)
+          assert len(targets)==2, targets
+          for r in targets:
+              print('TARGET_AFTER',json.dumps(r,ensure_ascii=False))
+              assert r['recommendation']=='SKIP', r
+              assert r['score']<50, r
+              assert r['job_family']!='research_project_management', r
+          explicit_research_title=re.compile(
+              r"research project|scientific project|proyectos? europeos?|projectes? de recerca|pre[- ]?award|gestion cientifica|gestion de investigacion",
+              re.I)
+          recall_regressions=[]
+          for a,b in zip(old,new):
+              if explicit_research_title.search(b['title']) and a['job_family']=='research_project_management' and b['job_family']!='research_project_management':
+                  recall_regressions.append((a,b))
+          print('explicit_research_pm_family_regressions',len(recall_regressions))
+          assert not recall_regressions, recall_regressions
+          PY
+      - name: Run broader evaluator validation used in production lineage
+        run: |
+          pytest -q \
+            tests/test_v158_sant_pau.py \
+            tests/test_v186_euraxess_recall_health.py \
+            tests/test_v194_biocat_detail_resolution.py \
+            tests/test_v156_academicpositions.py
+      - name: Commit validated V1.41 and clean temporary diagnostics
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/issue-a-fix-v2.yml .github/workflows/issue-a-fix.yml .github/workflows/issue-a-diagnostic.yml scripts/issue_a_patch.py
+          git add jobbot/evaluate.py jobbot/production.py tests/test_scoring_v141_project_pm_precision.py SCORING_FREEZE_V141.json PRODUCTION_VERSION.json
+          git commit -m "V2.02: add role-aware generic project manager precision guard"
+          git push origin main
+          git rev-parse HEAD
