@@ -1,10 +1,10 @@
 {
-  "production_version": "V2.05_MADRID_RELAY_RELIABILITY",
+  "production_version": "V2.06_EURAXESS_RESILIENT_TRANSPORT",
   "scoring_engine": "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Issue C Madrid relay reliability/performance. Cloudflare upstream timeout increased from 6s to 12s; strict recent cache prefill is used only for identical vacancy ID/title/company under the unchanged two-day effective-age policy; new/changed/no-cache vacancies are fresh-fetched; one bounded third rescue attempt is allowed only for remaining transient no-cache failures. Madrid discovery and scoring are unchanged; scoring remains frozen at V1.42.",
+  "scope": "EURAXESS Spain collector reliability repair. Live Spain and Job Offer facets are discovered and semantically validated; Spain remains a hard local constraint; pagination now follows live next links with bounded self-reset and duplicate-content recovery; the global fallback supports GET-first/POST-follow-up transport with transient retry and Retry-After-aware backoff; detail enrichment is paced and uses bounded 429 recovery. Existing taxonomy/card triage, historical coverage, caching, evaluator interfaces, and truthful coverage diagnostics are retained. Scoring remains frozen at V1.42.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V2.04_STATE_IDENTITY_COLLISION_REPAIR"
+  "previous_production_version": "V2.05_MADRID_RELAY_RELIABILITY"
 }
