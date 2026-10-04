@@ -1,10 +1,10 @@
 {
-  "production_version": "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL",
+  "production_version": "V2.04_STATE_IDENTITY_COLLISION_REPAIR",
   "scoring_engine": "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL",
   "baseline": "V1.78_IDIBAPS_REPLACEMENT",
   "search_engine_baseline": "V1.78_IDIBAPS_REPLACEMENT",
-  "scope": "Issue A recall-protection refinement. Explicit Junior Researcher titles now map to research_academic so mixed titles such as Project manager / Junior Researcher are not lost after the V1.41 generic-PM precision repair. V1.41 role-aware PM guards remain unchanged.",
+  "scope": "Issue B state-identity collision repair. Vacancy-specific identity query parameters are preserved; reused source IDs with materially different vacancy URLs and titles no longer merge; Hospital del Mar blank-Ref calls use their detail ID instead of inheriting a neighbouring reference; production seen-state collision history was migrated with backup and verification. Scoring remains frozen at V1.42.",
   "deployment_baseline": "V1.81_WORKER_URL_DISCOVERY_RETRY",
   "reporting_baseline": "V1.82_MADRID_NEEDS_DETAIL_SEPARATION",
-  "previous_production_version": "V2.02_ROLE_AWARE_PROJECT_PM_PRECISION"
+  "previous_production_version": "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL"
 }
