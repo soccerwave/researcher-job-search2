@@ -80,7 +80,7 @@ jobs:
           row3412 = row3412[0]
           row3433 = row3433[0]
           assert row3412.get("id") == "FIMIM3317-DOPAZO"
-          assert row3433.get("id") == "FIMIM3317-DOPAZO"  # proves historical pollution
+          assert row3433.get("id") == "FIMIM3317-DOPAZO"
           assert row3433.get("title") == "-"
 
           current_id = "job_44f809ec70f4392a9a92"
@@ -90,8 +90,6 @@ jobs:
           assert int(current.get("times_seen") or 0) == 24
           assert "bioinformatics" in str((current.get("last_snapshot") or {}).get("title") or "")
 
-          # Correct the current 3412 vacancy identity and undo the five duplicate
-          # sightings contributed by the distinct 3433 vacancy from Sep 30 through Oct 4.
           corrected_3412 = {
               "source": "Hospital del Mar Research Institute",
               "id": "FIMIM3317-DOPAZO",
@@ -109,8 +107,6 @@ jobs:
           current["aliases"] = merged
           current["times_seen"] = 19
 
-          # Seed the real blank-reference vacancy using its vacancy-specific detail ID,
-          # which is what the corrected collector now emits.
           corrected_3433 = {
               "source": "Hospital del Mar Research Institute",
               "id": "3433",
@@ -153,7 +149,7 @@ jobs:
               "state_jobs": len(state["jobs"]),
           }, sort_keys=True))
           PY
-      - name: Simulate current Hospital del Mar run against migrated copy only
+      - name: Collect current Hospital del Mar source against migrated copy only
         run: |
           cp runtime/state/candidate.json runtime/state/simulation.json
           python run_live_sample.py \
@@ -161,7 +157,7 @@ jobs:
             --state-file runtime/state/simulation.json \
             --out runtime/dryrun \
             | tee runtime/dryrun_stdout.json
-      - name: Assert identities stay separate with no false NEW
+      - name: Replay current Hospital rows through seen-state explicitly
         run: |
           python - <<'PY'
           import csv
@@ -169,25 +165,62 @@ jobs:
           import json
           from pathlib import Path
 
-          rows = list(csv.DictReader(Path("runtime/dryrun/all_canonical.csv").open(encoding="utf-8-sig", newline="")))
-          hospital = [r for r in rows if r.get("source") == "Hospital del Mar Research Institute"]
-          row3412 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3412")]
-          row3433 = [r for r in hospital if str(r.get("url") or "").endswith("?id=3433")]
+          from jobbot.state import apply_seen_state
+
+          csv_rows = list(csv.DictReader(Path("runtime/dryrun/all_canonical.csv").open(encoding="utf-8-sig", newline="")))
+          hospital = [r for r in csv_rows if r.get("source") == "Hospital del Mar Research Institute"]
+          assert len(hospital) == 9, len(hospital)
+
+          # Build normal typed state inputs instead of feeding CSV serialization details
+          # such as stringified list fields back into the identity layer.
+          rows = []
+          for r in hospital:
+              score = r.get("score")
+              try:
+                  score = int(float(score)) if str(score or "").strip() else None
+              except ValueError:
+                  score = None
+              rows.append({
+                  "source": r.get("source"),
+                  "id": r.get("id"),
+                  "title": r.get("title"),
+                  "company": r.get("company"),
+                  "location": r.get("location"),
+                  "url": r.get("url"),
+                  "trusted_full_detail_url": r.get("trusted_full_detail_url") or r.get("url"),
+                  "modality": r.get("modality"),
+                  "application_deadline": r.get("application_deadline"),
+                  "application_status": r.get("application_status"),
+                  "recommendation": r.get("recommendation"),
+                  "score": score,
+                  "detail_status": r.get("detail_status"),
+                  "full_detail": r.get("full_detail"),
+              })
+
+          stats = apply_seen_state(rows, Path("runtime/state/simulation.json"), "2026-10-04")
+          row3412 = [r for r in rows if str(r.get("url") or "").endswith("?id=3412")]
+          row3433 = [r for r in rows if str(r.get("url") or "").endswith("?id=3433")]
           assert len(row3412) == 1, len(row3412)
           assert len(row3433) == 1, len(row3433)
           a, b = row3412[0], row3433[0]
+
           assert a.get("id") == "FIMIM3317-DOPAZO"
           assert b.get("id") == "3433"
-          assert a.get("state_id") == "job_44f809ec70f4392a9a92"
-          assert b.get("state_id") and b.get("state_id") != a.get("state_id")
-          assert a.get("seen_status") != "NEW", a.get("seen_status")
-          assert b.get("seen_status") != "NEW", b.get("seen_status")
+          assert a.get("state_id") == "job_44f809ec70f4392a9a92", a
+          assert b.get("state_id") == "job_97ad9a722e6b6988aa06", b
+          assert a.get("state_id") != b.get("state_id")
+          assert a.get("seen_status") != "NEW", a
+          assert b.get("seen_status") != "NEW", b
+          assert stats["state_jobs"] == 3516, stats
+          assert stats["NEW"] == 0, stats
+
           candidate_sha = hashlib.sha256(Path("runtime/state/candidate.json").read_bytes()).hexdigest()
           original_sha = hashlib.sha256(Path("runtime/state/original.json").read_bytes()).hexdigest()
           assert original_sha == "4a405a6d07c4195773abf67f3becb36904e03feabeb9d9dfee2432608d975215"
           print("ISSUE_B_LIVE_SIMULATION", json.dumps({
               "3412": {"id": a.get("id"), "state_id": a.get("state_id"), "seen_status": a.get("seen_status")},
               "3433": {"id": b.get("id"), "state_id": b.get("state_id"), "seen_status": b.get("seen_status")},
+              "stats": stats,
               "candidate_sha256": candidate_sha,
               "original_sha256": original_sha,
               "r2_written": False,
