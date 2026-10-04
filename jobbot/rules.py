@@ -61,7 +61,7 @@ DISTANT_DOMAINS = {
 JOB_FAMILIES = {
     "research_academic": [
         r"postdoctoral researcher", r"postdoctoral fellow", r"postdoctoral scientist", r"postdoc",
-        r"research scientist", r"research fellow", r"health researcher", r"exercise researcher",
+        r"research scientist", r"research fellow", r"junior researcher", r"health researcher", r"exercise researcher",
         r"exercise scientist", r"exercise physiologist", r"physical activity researcher",
         r"sport science researcher", r"investigador", r"investigadora"
     ],
