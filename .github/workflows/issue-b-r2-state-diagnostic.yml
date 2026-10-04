@@ -1,0 +1,67 @@
+name: Issue B R2 State Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/issue-b-r2-state-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      JOBBOT_STATE_FILE: ${{ github.workspace }}/runtime/state/seen_jobs.json
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install cloud dependency
+        run: pip install -r requirements-cloud.txt
+      - name: Download production state read-only
+        run: |
+          mkdir -p runtime/state
+          python scripts/r2_store.py download-state --dest "$JOBBOT_STATE_FILE"
+      - name: Inspect collision target without mutation
+        run: |
+          python - <<'PY'
+          import json
+          import hashlib
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["JOBBOT_STATE_FILE"])
+          before = hashlib.sha256(path.read_bytes()).hexdigest()
+          data = json.loads(path.read_text(encoding="utf-8"))
+          target = "source_id:hospital_del_mar_research_institute:fimim3317-dopazo"
+          matches = []
+          for state_id, entry in (data.get("jobs") or {}).items():
+              aliases = list(entry.get("aliases") or [])
+              if target in aliases:
+                  snap = entry.get("last_snapshot") or {}
+                  matches.append({
+                      "state_id": state_id,
+                      "first_seen": entry.get("first_seen"),
+                      "last_seen": entry.get("last_seen"),
+                      "times_seen": entry.get("times_seen"),
+                      "title": snap.get("title"),
+                      "company": snap.get("company"),
+                      "aliases": aliases,
+                  })
+          after = hashlib.sha256(path.read_bytes()).hexdigest()
+          print("ISSUE_B_STATE_VERSION", data.get("state_version"))
+          print("ISSUE_B_STATE_JOBS", len(data.get("jobs") or {}))
+          print("ISSUE_B_TARGET_MATCHES", json.dumps(matches, ensure_ascii=False, sort_keys=True))
+          print("ISSUE_B_READ_ONLY_SHA", before, after, "UNCHANGED" if before == after else "CHANGED")
+          if before != after:
+              raise SystemExit("diagnostic mutated local downloaded state")
+          PY
