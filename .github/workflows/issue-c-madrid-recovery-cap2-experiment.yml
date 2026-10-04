@@ -50,11 +50,14 @@ jobs:
           p.write_text(s.replace(marker,repl),encoding='utf-8')
           PY
       - name: Focused regression
+        env:
+          MADRID_RELAY_URL: ""
+          MADRID_RELAY_TOKEN: ""
         run: |
           pytest -q \
             tests/test_v172_madrid_relay_backpressure.py \
             tests/test_v173_madrid_deferred_relay_recovery.py \
-            tests/test_v201_madrid_cache_effective_age.py \
+            tests/test_v201_madrid_cache_age.py \
             -k "not manifest"
       - name: Run production-shaped experiment
         run: |
