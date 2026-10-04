@@ -1,7 +1,7 @@
 const POEM_OFFERS_API =
   "https://apiscm.comunidad.madrid/t/ciudadanos.comunidad.madrid/educacion/portal-empleo/v1.1/ofertas";
 
-const UPSTREAM_TIMEOUT_MS = 6000;
+const UPSTREAM_TIMEOUT_MS = 12000;
 const MAX_ATTEMPTS = 1;
 function json(data, status = 200) {
   return Response.json(data, {

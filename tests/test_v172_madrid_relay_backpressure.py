@@ -66,7 +66,7 @@ def test_direct_mode_keeps_requested_detail_concurrency(monkeypatch):
 
 def test_relay_keeps_bounded_timeout_and_attempt_telemetry():
     worker = (ROOT / "cloudflare-madrid-relay" / "src" / "index.js").read_text(encoding="utf-8")
-    assert "const UPSTREAM_TIMEOUT_MS = 6000;" in worker
+    assert "const UPSTREAM_TIMEOUT_MS = 12000;" in worker
     assert "const MAX_ATTEMPTS = 1;" in worker
     assert "X-Madrid-Relay-Attempts" in worker
 

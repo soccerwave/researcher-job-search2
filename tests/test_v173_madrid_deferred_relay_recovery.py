@@ -27,7 +27,7 @@ def _blank_diag():
 
 def test_worker_uses_one_upstream_attempt_per_invocation():
     worker = (ROOT / "cloudflare-madrid-relay" / "src" / "index.js").read_text(encoding="utf-8")
-    assert "const UPSTREAM_TIMEOUT_MS = 6000;" in worker
+    assert "const UPSTREAM_TIMEOUT_MS = 12000;" in worker
     assert "const MAX_ATTEMPTS = 1;" in worker
     assert "RETRY_DELAY_MS" not in worker
     assert "for (let attempt" not in worker
