@@ -1,8 +1,6 @@
 """Regression checks for uncapped EURAXESS discovery and truthful coverage."""
 from urllib.parse import parse_qs, urlparse
 
-import pytest
-
 from sources.euraxess_transport import fetch_spain_pages
 
 
