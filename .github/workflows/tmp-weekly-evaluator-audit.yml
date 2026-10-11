@@ -1,0 +1,111 @@
+name: Temporary Weekly Evaluator Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3
+      - name: Audit Oct 5-11 production outputs
+        run: |
+          python - <<'PY'
+          import os, json, csv, gzip, io, boto3
+          runs=[
+            ("2026-10-05","37258883016-1"),
+            ("2026-10-06","37408317432-1"),
+            ("2026-10-07","37566097165-1"),
+            ("2026-10-08","37722062396-1"),
+            ("2026-10-09","37878629225-1"),
+            ("2026-10-10","38020068958-1"),
+            ("2026-10-11","38107928092-1"),
+          ]
+          endpoint=os.environ.get("R2_ENDPOINT") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3=boto3.client("s3",endpoint_url=endpoint,aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],region_name="auto")
+          bucket=os.environ["R2_BUCKET"]
+          def get(key):
+            return s3.get_object(Bucket=bucket,Key=key)["Body"].read()
+          def rows_csv(key):
+            try:
+              b=get(key)
+            except Exception:
+              return []
+            return list(csv.DictReader(io.StringIO(b.decode("utf-8-sig"))))
+          summaries=[]
+          union={}
+          for day,rid in runs:
+            prefix=f"runs/{day}/{rid}"
+            summ=json.loads(get(prefix+"/run_summary.json"))
+            ss=rows_csv(prefix+"/source_summary.csv")
+            da=rows_csv(prefix+"/daily_actionable.csv")
+            na=rows_csv(prefix+"/new_actionable.csv")
+            cr=rows_csv(prefix+"/changed_or_reopened.csv")
+            summaries.append({
+              "day":day,
+              "run":rid,
+              "summary":{k:summ.get(k) for k in [
+                "availability_as_of","seen_state_jobs","new_count","changed_or_reopened_count",
+                "daily_actionable_count","needs_detail_review_count","actionable_count"
+              ]},
+              "source_summary":ss,
+              "daily_actionable_n":len(da),
+              "new_actionable_n":len(na),
+              "changed_n":len(cr),
+            })
+            for tag,rows in [("daily",da),("new",na),("changed",cr)]:
+              for r in rows:
+                key=r.get("job_key") or r.get("id") or r.get("url") or (r.get("source","")+"|"+r.get("title","")+"|"+r.get("company",""))
+                item=union.setdefault(key,{"days":set(),"tags":set(),"rows":[]})
+                item["days"].add(day); item["tags"].add(tag); item["rows"].append(r)
+          print("===WEEKLY_RUN_SUMMARIES===")
+          for s in summaries:
+            print(json.dumps(s["summary"]|{"day":s["day"],"daily_csv":s["daily_actionable_n"],"new_csv":s["new_actionable_n"],"changed_csv":s["changed_n"]},ensure_ascii=False))
+          print("===SOURCE_SUMMARY_LATEST===")
+          for r in summaries[-1]["source_summary"]:
+            print(json.dumps(r,ensure_ascii=False))
+          print("===UNIQUE_ACTIONABLE_ROWS===")
+          out=[]
+          for key,v in union.items():
+            r=v["rows"][-1]
+            # emit only useful evaluator fields, but keep names dynamically if present
+            keep={}
+            for c in ["source","title","company","location","date","url","status","decision","tier","score","final_score","fit_score","priority","why","reasons","reason","hard_gate_reason","availability_status","detail_status","search_query"]:
+              if c in r and str(r.get(c) or "").strip():
+                keep[c]=r[c]
+            keep["days"]=sorted(v["days"]); keep["tags"]=sorted(v["tags"])
+            out.append(keep)
+          def score(x):
+            for k in ("final_score","score","fit_score"):
+              try:return float(x.get(k,""))
+              except:pass
+            return -1
+          out.sort(key=lambda x:(score(x),x.get("title","")),reverse=True)
+          for r in out:
+            print(json.dumps(r,ensure_ascii=False))
+          print("===LATEST_CANONICAL_HEADER_AND_TOP_NONSKIP===")
+          day,rid=runs[-1]; raw=get(f"runs/{day}/{rid}/all_canonical.csv.gz")
+          rows=list(csv.DictReader(io.StringIO(gzip.decompress(raw).decode("utf-8-sig"))))
+          print(json.dumps({"header":list(rows[0].keys()) if rows else [],"n":len(rows)},ensure_ascii=False))
+          non=[]
+          for r in rows:
+            decision=(r.get("decision") or r.get("tier") or r.get("priority") or "").upper()
+            if decision and decision not in {"SKIP","CLOSED"}:
+              non.append(r)
+          for r in non[:120]:
+            keep={k:r.get(k,"") for k in ["source","title","company","location","url","decision","tier","score","final_score","fit_score","status","availability_status","detail_status","reasons","why"] if k in r}
+            print(json.dumps(keep,ensure_ascii=False))
+          PY
