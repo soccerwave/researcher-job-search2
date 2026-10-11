@@ -1,6 +1,8 @@
 name: Temporary Weekly Evaluator Audit
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
