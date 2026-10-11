@@ -42,8 +42,9 @@ def _save_json(path: Path, payload) -> None:
     tmp.replace(path)
 
 
-def _feed_disk_path(pages: int, cutoff_date: date) -> Path:
-    return FEED_CACHE_DIR / f"spain_{cutoff_date.isoformat()}_{max(1, pages)}p.json"
+def _feed_disk_path(pages: int | None, cutoff_date: date) -> Path:
+    page_tag = str(max(1, pages)) if pages is not None else 'uncapped'
+    return FEED_CACHE_DIR / f"spain_{cutoff_date.isoformat()}_{page_tag}p.json"
 
 
 def _is_rate_limited_status(status: str) -> bool:
