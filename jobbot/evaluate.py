@@ -137,6 +137,13 @@ def _specialist_method_gaps(text: str, family: str = "unclear") -> list[str]:
             r"(?:electron|confocal|advanced optical) microscopy", r"electrophysiological recordings?",
             r"cell and molecular biology techniques?",
         ],
+        "cancer_stem_cell_wet_lab": [
+            r"leukemia|leukaemia|hematopoietic|haematopoietic|blood cancer|tumou?r biology|cancer biology",
+            r"stem cell biology|cancer stem cells?|hematopoietic stem cells?",
+            r"flow cytometr|cell sorting|facs|cell culture",
+            r"crispr|gene editing|mouse models?|in vivo tumor|xenograft",
+            r"molecular biology|single[- ]cell sequencing|chromatin immunoprecipitation",
+        ],
         "immune_cell_wet_lab": [
             r"cell culture", r"flow cytometr", r"biological samples?|serum|ficoll",
             r"macrophage|monocyte|innate immune", r"immunomodulatory",
@@ -440,11 +447,39 @@ def _mandatory_qualification_gaps(text: str) -> list[str]:
     return gaps
 
 
+def _mandatory_catalan_c2(text: str) -> bool:
+    """Only explicit obligatory native/C2 Catalan should be a hard blocker.
+
+    'Catalan is an asset', 'working knowledge', and ordinary mandatory Catalan
+    without a C2/native threshold must remain reviewable.
+    """
+    t = normalize(text)
+    for sentence in re.split(r"[\\n.;]+", t):
+        if not re.search(r"\\b(?:catalan|catala)\\b", sentence):
+            continue
+        if re.search(r"\\b(?:asset|plus|desirable|preferred|advantage|valued|valorable|merit|merito|es valorara|es valorara|working knowledge|coneixements|conocimientos)\\b", sentence):
+            continue
+        native_c2 = re.search(
+            r"\\b(?:c2|native|bilingual|natiu|nativa|nativo|nativa)\\b.{0,35}\\b(?:catalan|catala)\\b|"
+            r"\\b(?:catalan|catala)\\b.{0,35}\\b(?:c2|native|bilingual|natiu|nativa|nativo)\\b",
+            sentence,
+        )
+        if not native_c2:
+            continue
+        # Explicit C2/native in requirements is a hard eligibility signal.
+        return True
+    return False
+
+
 def hard_blockers(text: str, title: str) -> list[str]:
     norm_title = normalize(title)
     combined = f"{norm_title}\n{normalize(text)}"
     blockers = []
     for name, patterns in HARD_BLOCKERS.items():
+        if name == 'catalan_c2':
+            if _mandatory_catalan_c2(text):
+                blockers.append(name)
+            continue
         if any(re.search(p, combined, re.I) for p in patterns):
             blockers.append(name)
 
@@ -992,6 +1027,12 @@ def evaluate_job(job: dict[str, Any]) -> dict[str, Any]:
     # A required specialist academic field/track record is a major fit gap, not a minor
     # postdoc penalty. Keep such roles out of the primary shortlist in precision-first mode.
     if specialist_gap_hits and family == "research_academic":
+        score = min(score, 59)
+
+    # Coherent cancer/stem-cell laboratory specialism is not evidenced by generic
+    # epigenetics or research-project skills. Only cap academic research roles, not
+    # transferable project-management opportunities in the same institution.
+    if family == "research_academic" and "cancer_stem_cell_wet_lab" in specialist_method_gaps:
         score = min(score, 59)
 
     # Multiple specialist lab requirements that are absent from the CV make the role a poor
