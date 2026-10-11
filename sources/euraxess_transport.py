@@ -164,7 +164,7 @@ def _fingerprint(rows: list[dict]) -> tuple[str, ...]:
     ))
 
 
-def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_spain_facet: bool,
+def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int], use_spain_facet: bool,
                       parse_search_html: Callable[[str], list[dict]], is_spain: Callable[[dict], bool],
                       parse_posted_date: Callable[[str | None], Any], cutoff_date=None,
                       request_delay: float = 0.0, make_session=None) -> tuple[list[dict], dict]:
@@ -180,7 +180,7 @@ def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_sp
     undated_cards_seen = 0
     newest_seen = None
     oldest_seen = None
-    stop_reason = 'page_limit'
+    stop_reason = 'not_started'
     pagination_repeat_detected = False
     repeated_pages: list[int] = []
     semantic_duplicate_retries = 0
@@ -213,7 +213,8 @@ def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_sp
         else:
             seeded_response = None
 
-        for page in range(max(1, pages)):
+        page = 0
+        while pages is None or page < max(1, pages):
             try:
                 if seeded_response is not None:
                     response = seeded_response
@@ -319,14 +320,15 @@ def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_sp
                 if not next_url:
                     stop_reason = 'last_page'
                     break
-                if page + 1 >= max(1, pages):
-                    stop_reason = 'page_limit'
+                if pages is not None and page + 1 >= max(1, pages):
+                    stop_reason = 'configured_page_limit'
                     break
                 if next_url in visited:
                     advanced = _increment_page(getattr(response, 'url', current_url))
                     current_url = advanced or next_url
                 else:
                     current_url = next_url
+                page += 1
             except Exception as exc:
                 page_errors.append(f'page {page}: {type(exc).__name__}: {exc}')
                 stop_reason = 'first_page_error' if page == 0 else 'page_fetch_error'
@@ -343,7 +345,7 @@ def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_sp
     if cutoff_date is None:
         coverage_complete = (
             not page_errors and not pagination_repeat_detected and facet_honored
-            and stop_reason in {'page_limit', 'last_page', 'last_page_reset', 'empty_page'}
+            and stop_reason in {'last_page', 'last_page_reset', 'empty_page'}
         )
     else:
         window_reached = stop_reason == 'cutoff_reached' or (oldest_seen is not None and oldest_seen <= cutoff_date)
@@ -366,7 +368,7 @@ def fetch_spain_pages(*, base: str, pages: int, timeout: tuple[int, int], use_sp
         'filter_transport': filter_transport,
         'country_facet': country_facet,
         'offer_type_facet': offer_facet,
-        'pages_requested': max(1, pages),
+        'pages_requested': max(1, pages) if pages is not None else None,
         'pages_fetched': pages_fetched,
         'parsed_cards': parsed_total,
         'unique_cards': len(cards),
