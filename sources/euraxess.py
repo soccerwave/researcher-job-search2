@@ -18,7 +18,7 @@ SEARCH_BASES = [
     "https://euraxess.ec.europa.eu",
 ]
 SPAIN_FACET_VALUE = "job_country:788"
-DEFAULT_PAGES = 8
+DEFAULT_PAGES = None  # Uncapped listing traversal; explicit pages remains a diagnostic safety limit.
 DEFAULT_MAX_CANDIDATES = 80
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -358,7 +358,7 @@ def _page_params(page: int, use_spain_facet: bool) -> dict[str, str]:
 
 def _fetch_mode(
     base: str,
-    pages: int,
+    pages: int | None,
     timeout: tuple[int, int],
     use_spain_facet: bool,
     *,
@@ -380,14 +380,14 @@ def _fetch_mode(
     )
 
 def _get_spain_feed(
-    pages: int, timeout: tuple[int, int], *, cutoff_date: date | None = None
+    pages: int | None, timeout: tuple[int, int], *, cutoff_date: date | None = None
 ) -> tuple[list[dict], dict, bool]:
     """Get a locally country-validated Spain feed, preferring the official Spain facet.
 
     The server-side facet is not blindly trusted. Even when the facet URL responds,
     every parsed card is checked locally for Spain before it can proceed.
     """
-    cache_key = (max(1, pages), repr(timeout), cutoff_date.isoformat() if cutoff_date else "")
+    cache_key = (max(1, pages) if pages is not None else None, repr(timeout), cutoff_date.isoformat() if cutoff_date else "")
     if cache_key in _FEED_CACHE:
         cards, diag = _FEED_CACHE[cache_key]
         return deepcopy(cards), deepcopy(diag), True
@@ -469,7 +469,7 @@ def _get_spain_feed(
         best_diag = {
             "base": "",
             "mode": "failed",
-            "pages_requested": max(1, pages),
+            "pages_requested": max(1, pages) if pages is not None else None,
             "pages_fetched": 0,
             "parsed_cards": 0,
             "unique_cards": 0,
@@ -504,7 +504,7 @@ def collect(
     country: str = "Spain",
     timeout: int | tuple[int, int] = (10, 45),
     enrich_detail: bool = True,
-    pages: int = DEFAULT_PAGES,
+    pages: int | None = DEFAULT_PAGES,
     diagnostics: dict | None = None,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     audit_rows: list[dict] | None = None,
