@@ -299,6 +299,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                             session, method, current_url, timeout=timeout, attempts=4,
                             pace_seconds=max(request_delay, 2.5) if not use_spain_facet else request_delay,
                             backoff_base=15.0, backoff_cap=180.0, minimum_backoff=15.0,
+                            deadline=deadline,
                         )
                         retry.raise_for_status()
                         retry_rows = parse_search_html(retry.text)
