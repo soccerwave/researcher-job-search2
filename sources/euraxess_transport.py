@@ -420,18 +420,33 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
 
 
 def fetch_detail_resilient(fetcher, url: str, *, timeout, title_hint: str, session,
-                           pace_seconds: float = 3.0, attempts: int = 3):
+                           pace_seconds: float = 3.0, attempts: int = 3,
+                           deadline: float | None = None):
     last_detail, last_status = '', ''
     requests_used = 0
     for attempt in range(max(1, attempts)):
-        if pace_seconds > 0:
-            time.sleep(pace_seconds)
-        detail, status = fetcher(url, timeout=timeout, title_hint=title_hint, session=session)
+        try:
+            _budget_sleep(pace_seconds, deadline)
+        except TimeoutError:
+            return '', 'DEFERRED_TIME_BUDGET', requests_used
+        bounded_timeout = timeout
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return '', 'DEFERRED_TIME_BUDGET', requests_used
+            if isinstance(timeout, tuple):
+                bounded_timeout = tuple(max(0.1, min(float(t), remaining)) for t in timeout)
+            else:
+                bounded_timeout = max(0.1, min(float(timeout), remaining))
+        detail, status = fetcher(url, timeout=bounded_timeout, title_hint=title_hint, session=session)
         requests_used += 1
         last_detail, last_status = detail, status
         normalized = _clean(status).lower()
         if '429' not in normalized and 'too many requests' not in normalized:
             return detail, status, requests_used
         if attempt + 1 < attempts:
-            time.sleep(min(90.0, max(30.0, 15.0 * (2.0 ** attempt))))
+            try:
+                _budget_sleep(min(90.0, max(30.0, 15.0 * (2.0 ** attempt))), deadline)
+            except TimeoutError:
+                return '', 'DEFERRED_TIME_BUDGET', requests_used
     return last_detail, last_status, requests_used
