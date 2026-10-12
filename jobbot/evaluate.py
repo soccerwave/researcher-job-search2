@@ -455,13 +455,13 @@ def _mandatory_catalan_c2(text: str) -> bool:
     """
     for raw_sentence in re.split(r"[\n.;]+", text or ""):
         sentence = normalize(raw_sentence)
-        if not re.search(r"\\b(?:catalan|catala)\\b", sentence):
+        if not re.search(r"\b(?:catalan|catala)\b", sentence):
             continue
-        if re.search(r"\\b(?:asset|plus|desirable|preferred|advantage|valued|valorable|merit|merito|es valorara|es valorara|working knowledge|coneixements|conocimientos)\\b", sentence):
+        if re.search(r"\b(?:asset|plus|desirable|preferred|advantage|valued|valorable|merit|merito|es valorara|es valorara|working knowledge|coneixements|conocimientos)\b", sentence):
             continue
         native_c2 = re.search(
-            r"\\b(?:c2|native|bilingual|natiu|nativa|nativo|nativa)\\b.{0,35}\\b(?:catalan|catala)\\b|"
-            r"\\b(?:catalan|catala)\\b.{0,35}\\b(?:c2|native|bilingual|natiu|nativa|nativo)\\b",
+            r"\b(?:c2|native|bilingual|natiu|nativa|nativo|nativa)\b.{0,35}\b(?:catalan|catala)\b|"
+            r"\b(?:catalan|catala)\b.{0,35}\b(?:c2|native|bilingual|natiu|nativa|nativo)\b",
             sentence,
         )
         if not native_c2:
