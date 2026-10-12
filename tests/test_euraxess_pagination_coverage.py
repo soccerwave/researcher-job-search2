@@ -41,7 +41,7 @@ class Session:
         pass
 
 
-def run(pages=None, total_pages=12, empty_terminal=False):
+def run(pages=None, total_pages=12, empty_terminal=False, deadline=None):
     session = Session(total_pages, empty_terminal)
     def parse(html):
         import re
@@ -53,6 +53,7 @@ def run(pages=None, total_pages=12, empty_terminal=False):
         use_spain_facet=False, parse_search_html=parse,
         is_spain=lambda card: card["location"] == "Spain",
         parse_posted_date=lambda value: None, make_session=lambda **kwargs: session,
+        deadline=deadline,
     )
     return cards, diag
 
@@ -85,3 +86,25 @@ def test_default_collect_is_uncapped():
     from inspect import signature
     from sources.euraxess import collect
     assert signature(collect).parameters["pages"].default is None
+
+
+def test_expired_listing_budget_is_partial():
+    import time
+    _, diag = run(deadline=time.monotonic() - 1)
+    assert diag["stop_reason"] == "time_budget"
+    assert diag["coverage_complete"] is False
+
+
+def test_expired_detail_budget_defers_without_network_call():
+    import time
+    from sources.euraxess_transport import fetch_detail_resilient
+    class NoNetwork:
+        pass
+    def never_fetch(*args, **kwargs):
+        raise AssertionError("Expired budget must not hit network")
+    detail, status, count = fetch_detail_resilient(
+        never_fetch, "https://euraxess.ec.europa.eu/jobs/42",
+        timeout=(10, 45), title_hint="Researcher", session=NoNetwork(),
+        pace_seconds=0, deadline=time.monotonic() - 1,
+    )
+    assert (detail, status, count) == ("", "DEFERRED_TIME_BUDGET", 0)
