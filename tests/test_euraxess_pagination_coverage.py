@@ -45,7 +45,7 @@ def run(pages=None, total_pages=12, empty_terminal=False):
     session = Session(total_pages, empty_terminal)
     def parse(html):
         import re
-        match = re.search(r"JOB_ROW:(\\d+)", html)
+        match = re.search(r"JOB_ROW:(\d+)", html)
         return [{"id": match.group(1), "url": f"https://euraxess.ec.europa.eu/jobs/{match.group(1)}",
                  "location": "Spain", "date": ""}] if match else []
     cards, diag = fetch_spain_pages(
