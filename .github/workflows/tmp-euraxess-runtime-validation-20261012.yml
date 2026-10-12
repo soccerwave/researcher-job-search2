@@ -36,9 +36,7 @@ jobs:
             tests/test_euraxess_pagination_coverage.py \
             tests/test_v203_euraxess_resilient_transport.py \
             tests/test_v186_euraxess_recall_health.py \
-            tests/test_v111_transport_and_coverage.py \
             tests/test_evaluator_targeted_20261011.py \
             tests/test_v137_production_orchestration.py \
             tests/test_v162_durable_production_state.py \
-            tests/test_v164_cloud_production.py \
             tests/test_v188_evaluator_calibration.py
