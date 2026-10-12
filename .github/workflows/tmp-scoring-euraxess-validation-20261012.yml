@@ -1,4 +1,5 @@
 name: Temporary Scoring and EURAXESS Validation 2026-10-12
+# Rerun after mock row-parser correction
 
 on:
   push:
