@@ -397,7 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--madrid-pages", type=int, default=10)
     p.add_argument("--madrid-max-jobs", type=int, default=100)
     p.add_argument("--madrid-detail-workers", type=int, default=6)
-    p.add_argument("--euraxess-pages", type=int, default=8)
+    p.add_argument("--euraxess-pages", type=int, default=None, help="Optional cap; uncapped production traversal by default")
     p.add_argument("--euraxess-max-candidates", type=int, default=80)
     p.add_argument("--history-days", type=int, default=None)
     p.add_argument("--history-max-pages", type=int, default=40)
