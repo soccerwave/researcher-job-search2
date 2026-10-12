@@ -32,3 +32,19 @@ def test_single_cancer_word_not_a_lab_cluster():
     assert "cancer_stem_cell_wet_lab" not in _specialist_method_gaps(
         "Project manager coordinating a cancer research grant", family="research_project_management"
     )
+
+
+def test_c2_in_separate_sentence_is_still_required():
+    assert "catalan_c2" in hard_blockers("Catalan C2 is mandatory. Spanish is preferred.", "Project Officer")
+
+
+def test_c2_only_desirable_is_not_hard_blocked():
+    assert "catalan_c2" not in hard_blockers("Catalan C2 is desirable.", "Research Manager")
+
+
+def test_catalan_requirement_guard_in_complete_evaluator():
+    from jobbot.evaluate import evaluate_job
+    job = {"title": "Academic Project Manager", "location": "Barcelona, Spain", "full_detail":
+           "Required: working knowledge of Catalan, Spanish and English. Experience coordinating health research and grant reporting."}
+    out = evaluate_job(job)
+    assert "catalan_c2" not in out.get("hard_blockers", [])
