@@ -20,6 +20,7 @@ SEARCH_BASES = [
 SPAIN_FACET_VALUE = "job_country:788"
 DEFAULT_PAGES = None  # Uncapped listing traversal; explicit pages remains a diagnostic safety limit.
 PRODUCTION_LISTING_BUDGET_SECONDS = 120  # Per-run EURAXESS listing budget; exhaustion is PARTIAL.
+PRODUCTION_DETAIL_BUDGET_SECONDS = 180  # Unresolved details are deferred, not discarded.
 DEFAULT_MAX_CANDIDATES = 80
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -631,6 +632,7 @@ def collect(
     if not isinstance(persistent_detail_cache, dict):
         persistent_detail_cache = {}
 
+    detail_deadline = time.monotonic() + PRODUCTION_DETAIL_BUDGET_SECONDS if cutoff is None else None
     if enrich_detail:
         session = make_retry_session(total_retries=3, backoff_factor=1.5)
         try:
@@ -652,11 +654,15 @@ def collect(
                 elif rate_limited:
                     status = "DEFERRED_RATE_LIMIT"
                     detail_deferred += 1
+                elif detail_deadline is not None and time.monotonic() >= detail_deadline:
+                    status = "DEFERRED_TIME_BUDGET"
+                    detail_deferred += 1
                 else:
                     detail, status, requests_used = fetch_detail_resilient(
                         fetch_url_text, url, timeout=timeout_tuple,
                         title_hint=job.get("title", ""), session=session,
                         pace_seconds=max(0.0, float(detail_request_delay or 0.0)),
+                        deadline=detail_deadline,
                     )
                     detail_network_requests += requests_used
 
@@ -669,11 +675,14 @@ def collect(
                                 fetch_url_text, alt, timeout=timeout_tuple,
                                 title_hint=job.get("title", ""), session=session,
                                 pace_seconds=max(0.0, float(detail_request_delay or 0.0)),
+                                deadline=detail_deadline,
                             )
                             detail_network_requests += alt_requests
                             if alt_detail and alt_status in {"OK_HTML", "OK_PDF", "OK", "CACHE"} and _valid_euraxess_detail(alt_detail):
                                 detail, status = alt_detail, alt_status
 
+                    if status == "DEFERRED_TIME_BUDGET":
+                        detail_deferred += 1
                     if _is_rate_limited_status(status):
                         # Do not keep firing dozens of requests after a persistent 429.
                         # Save progress and defer the rest to the next run.
@@ -685,8 +694,8 @@ def collect(
                         persistent_detail_cache[url] = {"detail": "", "status": status}
                         _save_json(DETAIL_CACHE_PATH, persistent_detail_cache)
 
-                    if detail_request_delay and not rate_limited and idx < len(candidates) - 1:
-                        time.sleep(max(0.0, float(detail_request_delay)))
+                    # fetch_detail_resilient already applies pacing before each request.
+                    # Avoid paying the same delay a second time between candidates.
 
                 if detail and status in {"OK_HTML", "OK_PDF", "OK", "CACHE"} and not _valid_euraxess_detail(detail):
                     detail = ""
@@ -718,6 +727,7 @@ def collect(
         "detail_failed": detail_failed,
         "detail_mismatch": detail_mismatch,
         "detail_deferred": detail_deferred,
+        "detail_budget_seconds": PRODUCTION_DETAIL_BUDGET_SECONDS if cutoff is None else None,
         "detail_rate_limited": rate_limited,
         "detail_resolution_rate": round(detail_success / len(candidates), 4) if candidates else 1.0,
         "detail_resolution_complete": detail_failed == 0,
