@@ -113,15 +113,33 @@ def _retry_after_seconds(response: Any, attempt: int, *, base: float, cap: float
     return floor
 
 
+def _budget_sleep(seconds: float, deadline: float | None) -> None:
+    if deadline is not None:
+        seconds = min(seconds, max(0.0, deadline - time.monotonic()))
+    if seconds > 0:
+        time.sleep(seconds)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError('EURAXESS listing time budget exhausted')
+
+
 def _request(session, method: str, url: str, *, timeout, params=None, attempts: int = 5,
              pace_seconds: float = 0.0, backoff_base: float = 5.0,
-             backoff_cap: float = 60.0, minimum_backoff: float = 0.0):
+             backoff_cap: float = 60.0, minimum_backoff: float = 0.0,
+             deadline: float | None = None):
     call = getattr(session, 'post', session.get) if method.upper() == 'POST' else session.get
     last = None
     for attempt in range(max(1, attempts)):
-        if pace_seconds > 0:
-            time.sleep(pace_seconds)
-        kwargs = {'timeout': timeout, 'allow_redirects': True}
+        _budget_sleep(pace_seconds, deadline)
+        bounded_timeout = timeout
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('EURAXESS listing time budget exhausted')
+            if isinstance(timeout, tuple):
+                bounded_timeout = tuple(max(0.1, min(float(t), remaining)) for t in timeout)
+            else:
+                bounded_timeout = max(0.1, min(float(timeout), remaining))
+        kwargs = {'timeout': bounded_timeout, 'allow_redirects': True}
         if params is not None:
             kwargs['params'] = params
         response = call(url, **kwargs)
@@ -130,9 +148,9 @@ def _request(session, method: str, url: str, *, timeout, params=None, attempts: 
         if status not in {429, 500, 502, 503, 504}:
             return response
         if attempt + 1 < attempts:
-            time.sleep(_retry_after_seconds(
+            _budget_sleep(_retry_after_seconds(
                 response, attempt, base=backoff_base, cap=backoff_cap, minimum=minimum_backoff
-            ))
+            ), deadline)
     return last
 
 
@@ -167,7 +185,8 @@ def _fingerprint(rows: list[dict]) -> tuple[str, ...]:
 def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int], use_spain_facet: bool,
                       parse_search_html: Callable[[str], list[dict]], is_spain: Callable[[dict], bool],
                       parse_posted_date: Callable[[str | None], Any], cutoff_date=None,
-                      request_delay: float = 0.0, make_session=None) -> tuple[list[dict], dict]:
+                      request_delay: float = 0.0, make_session=None,
+                      deadline: float | None = None) -> tuple[list[dict], dict]:
     session = make_session(total_retries=0, backoff_factor=0) if make_session else None
     if session is None:
         raise RuntimeError('EURAXESS session factory unavailable')
@@ -195,7 +214,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
 
     try:
         if use_spain_facet:
-            first = _request(session, 'GET', search_url, timeout=timeout, attempts=5, pace_seconds=request_delay)
+            first = _request(session, 'GET', search_url, timeout=timeout, attempts=5, pace_seconds=request_delay, deadline=deadline)
             first.raise_for_status()
             country_facet, offer_facet, action = _discover_facets(first.text)
             if not country_facet or not offer_facet:
@@ -203,7 +222,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
             current_url = urljoin(first.url, action or SEARCH_PATH)
             params = [('f[0]', country_facet), ('f[1]', offer_facet)]
             response = _request(session, 'GET', current_url, timeout=timeout, params=params,
-                                attempts=5, pace_seconds=request_delay)
+                                attempts=5, pace_seconds=request_delay, deadline=deadline)
             response.raise_for_status()
             if not _facet_active(response.text, country_facet, offer_facet):
                 raise RuntimeError('EURAXESS returned HTTP 200 but Spain/Job Offer facets were inactive')
@@ -215,6 +234,9 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
 
         page = 0
         while pages is None or page < max(1, pages):
+            if deadline is not None and time.monotonic() >= deadline:
+                stop_reason = 'time_budget'
+                break
             try:
                 if seeded_response is not None:
                     response = seeded_response
@@ -237,6 +259,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                         backoff_base=15.0 if not use_spain_facet else 5.0,
                         backoff_cap=180.0 if not use_spain_facet else 60.0,
                         minimum_backoff=15.0 if not use_spain_facet else 0.0,
+                        deadline=deadline,
                     )
                     response.raise_for_status()
 
@@ -249,7 +272,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                     probe = _request(
                         session, 'GET', current_url, timeout=timeout, attempts=4,
                         pace_seconds=max(request_delay, 2.5), backoff_base=15.0,
-                        backoff_cap=180.0, minimum_backoff=15.0,
+                        backoff_cap=180.0, minimum_backoff=15.0, deadline=deadline,
                     )
                     probe.raise_for_status()
                     probe_rows = parse_search_html(probe.text)
@@ -270,7 +293,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                     for retry_index in range(2):
                         semantic_duplicate_retries += 1
                         if request_delay > 0 or not use_spain_facet:
-                            time.sleep(5.0 * (retry_index + 1))
+                            _budget_sleep(5.0 * (retry_index + 1), deadline)
                         method = 'GET' if use_spain_facet or page == 0 else 'POST'
                         retry = _request(
                             session, method, current_url, timeout=timeout, attempts=4,
@@ -329,10 +352,15 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                 else:
                     current_url = next_url
                 page += 1
+            except TimeoutError:
+                stop_reason = 'time_budget'
+                break
             except Exception as exc:
                 page_errors.append(f'page {page}: {type(exc).__name__}: {exc}')
                 stop_reason = 'first_page_error' if page == 0 else 'page_fetch_error'
                 break
+    except TimeoutError:
+        stop_reason = 'time_budget'
     except Exception as exc:
         page_errors.append(f'preflight: {type(exc).__name__}: {exc}')
         stop_reason = 'filter_validation_failed' if use_spain_facet else 'first_page_error'
