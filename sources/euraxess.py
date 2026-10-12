@@ -19,8 +19,6 @@ SEARCH_BASES = [
 ]
 SPAIN_FACET_VALUE = "job_country:788"
 DEFAULT_PAGES = None  # Uncapped listing traversal; explicit pages remains a diagnostic safety limit.
-PRODUCTION_LISTING_BUDGET_SECONDS = 120  # Per-run EURAXESS listing budget; exhaustion is PARTIAL.
-PRODUCTION_DETAIL_BUDGET_SECONDS = 180  # Unresolved details are deferred, not discarded.
 DEFAULT_MAX_CANDIDATES = 80
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -409,9 +407,9 @@ def _get_spain_feed(
             _FEED_CACHE[cache_key] = (deepcopy(cards), deepcopy(diag))
             return deepcopy(cards), deepcopy(diag), True
 
-    # Share one budget across both facet attempts and global fallbacks; do not
-    # silently let each failed endpoint consume a separate full timeout.
-    deadline = time.monotonic() + PRODUCTION_LISTING_BUDGET_SECONDS if cutoff_date is None else None
+    # Keep full pagination in production. An optional explicit deadline is supported
+    # by the transport but is not imposed during ordinary daily collection.
+    deadline = None
     attempts: list[dict] = []
     best_cards: list[dict] = []
     best_diag: dict = {}
@@ -632,7 +630,8 @@ def collect(
     if not isinstance(persistent_detail_cache, dict):
         persistent_detail_cache = {}
 
-    detail_deadline = time.monotonic() + PRODUCTION_DETAIL_BUDGET_SECONDS if cutoff is None else None
+    # Never truncate daily full-JD enrichment using a wall-clock cutoff.
+    detail_deadline = None
     if enrich_detail:
         session = make_retry_session(total_retries=3, backoff_factor=1.5)
         try:
@@ -727,7 +726,7 @@ def collect(
         "detail_failed": detail_failed,
         "detail_mismatch": detail_mismatch,
         "detail_deferred": detail_deferred,
-        "detail_budget_seconds": PRODUCTION_DETAIL_BUDGET_SECONDS if cutoff is None else None,
+        "detail_budget_seconds": None,
         "detail_rate_limited": rate_limited,
         "detail_resolution_rate": round(detail_success / len(candidates), 4) if candidates else 1.0,
         "detail_resolution_complete": detail_failed == 0,
