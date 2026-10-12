@@ -453,8 +453,8 @@ def _mandatory_catalan_c2(text: str) -> bool:
     'Catalan is an asset', 'working knowledge', and ordinary mandatory Catalan
     without a C2/native threshold must remain reviewable.
     """
-    t = normalize(text)
-    for sentence in re.split(r"[\\n.;]+", t):
+    for raw_sentence in re.split(r"[\n.;]+", text or ""):
+        sentence = normalize(raw_sentence)
         if not re.search(r"\\b(?:catalan|catala)\\b", sentence):
             continue
         if re.search(r"\\b(?:asset|plus|desirable|preferred|advantage|valued|valorable|merit|merito|es valorara|es valorara|working knowledge|coneixements|conocimientos)\\b", sentence):
