@@ -19,6 +19,7 @@ SEARCH_BASES = [
 ]
 SPAIN_FACET_VALUE = "job_country:788"
 DEFAULT_PAGES = None  # Uncapped listing traversal; explicit pages remains a diagnostic safety limit.
+PRODUCTION_LISTING_BUDGET_SECONDS = 120  # Per-run EURAXESS listing budget; exhaustion is PARTIAL.
 DEFAULT_MAX_CANDIDATES = 80
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -365,6 +366,7 @@ def _fetch_mode(
     *,
     cutoff_date: date | None = None,
     request_delay: float = 0.0,
+    deadline: float | None = None,
 ) -> tuple[list[dict], dict]:
     """Fetch EURAXESS with semantic facet validation and resilient pagination."""
     return fetch_spain_pages(
@@ -377,6 +379,7 @@ def _fetch_mode(
         parse_posted_date=_parse_posted_date,
         cutoff_date=cutoff_date,
         request_delay=request_delay,
+        deadline=deadline,
         make_session=make_retry_session,
     )
 
@@ -405,13 +408,18 @@ def _get_spain_feed(
             _FEED_CACHE[cache_key] = (deepcopy(cards), deepcopy(diag))
             return deepcopy(cards), deepcopy(diag), True
 
+    # Share one budget across both facet attempts and global fallbacks; do not
+    # silently let each failed endpoint consume a separate full timeout.
+    deadline = time.monotonic() + PRODUCTION_LISTING_BUDGET_SECONDS if cutoff_date is None else None
     attempts: list[dict] = []
     best_cards: list[dict] = []
     best_diag: dict = {}
 
     # First try the official Spain facet on the Spain site and the shared EC site.
     for base in SEARCH_BASES:
-        cards, diag = _fetch_mode(base, pages, timeout, use_spain_facet=True, cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0)
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        cards, diag = _fetch_mode(base, pages, timeout, use_spain_facet=True, cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0, deadline=deadline)
         attempts.append(diag)
         # A high Spain ratio strongly suggests the facet is being honored.
         if cards and diag["spain_ratio"] >= 0.75:
@@ -425,9 +433,12 @@ def _get_spain_feed(
     # but avoids silently returning irrelevant countries.
     if not best_cards or best_diag.get("spain_ratio", 0) < 0.75 or not best_diag.get("coverage_complete", False):
         for base in ["https://euraxess.ec.europa.eu", "https://www.euraxess.es"]:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
             cards, diag = _fetch_mode(
                 base, pages, timeout, use_spain_facet=False,
-                cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0
+                cutoff_date=cutoff_date, request_delay=0.8 if cutoff_date else 0.0,
+                deadline=deadline,
             )
             attempts.append(diag)
 
