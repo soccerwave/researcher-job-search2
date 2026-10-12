@@ -34,8 +34,8 @@ def test_euraxess_page_error_or_truncation_is_partial_coverage():
 
 def test_euraxess_healthy_empty_feed_is_not_failed(monkeypatch):
     euraxess._FEED_CACHE.clear()
-    def fake_fetch_mode(base, pages, timeout, use_spain_facet, *, cutoff_date=None, request_delay=0.0):
-        return [], {"base": base, "mode": "official_spain_facet" if use_spain_facet else "generic_feed_local_spain_filter", "pages_requested": pages, "pages_fetched": pages, "parsed_cards": 40, "unique_cards": 40, "spain_cards": 0, "spain_ratio": 0.0, "page_errors": [], "cutoff_date": None, "newest_seen_date": "2026-09-06", "oldest_seen_date": "2026-09-06", "dated_cards_seen": 40, "undated_cards_seen": 0, "stop_reason": "page_limit", "coverage_complete": True, "coverage_warning": ""}
+    def fake_fetch_mode(base, pages, timeout, use_spain_facet, *, cutoff_date=None, request_delay=0.0, deadline=None):
+        return [], {"base": base, "mode": "official_spain_facet" if use_spain_facet else "generic_feed_local_spain_filter", "pages_requested": pages, "pages_fetched": pages, "parsed_cards": 40, "unique_cards": 40, "spain_cards": 0, "spain_ratio": 0.0, "page_errors": [], "cutoff_date": None, "newest_seen_date": "2026-09-06", "oldest_seen_date": "2026-09-06", "dated_cards_seen": 40, "undated_cards_seen": 0, "stop_reason": "last_page", "coverage_complete": True, "coverage_warning": ""}
     monkeypatch.setattr(euraxess, "_fetch_mode", fake_fetch_mode)
     cards, diag, cache_hit = euraxess._get_spain_feed(2, (1, 1))
     assert cards == []
