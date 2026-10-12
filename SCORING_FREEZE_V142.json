@@ -2,7 +2,7 @@
   "scoring_engine": "V1.42_JUNIOR_RESEARCHER_TITLE_RECALL",
   "package": "V2.03_JUNIOR_RESEARCHER_TITLE_RECALL",
   "status": "ACTIVE_PRODUCTION_CANDIDATE",
-  "note": "Issue A recall refinement: explicit Junior Researcher title recognition restores research_academic family for mixed project-manager/researcher vacancies without weakening V1.41 generic Project Manager precision guards.",
+  "note": "Issue A recall refinement: explicit Junior Researcher title recognition restores research_academic family for mixed project-manager/researcher vacancies without weakening V1.41 generic Project Manager precision guards. 2026-10-12: approved narrow updates to Catalan C2 and cancer stem-cell lab precision; SHA256 refreshed after patch.",
   "tests_planned": [
     "tests/test_scoring_v142_junior_researcher_recall.py",
     "tests/test_scoring_v141_project_pm_precision.py",
@@ -11,7 +11,7 @@
     "2026-10-04 immutable canonical replay"
   ],
   "sha256": {
-    "jobbot/evaluate.py": "1ced4b801b2426a1354aa936b7c1b5d7d43b4955aaa21197c917d2c9c7d401b9",
+    "jobbot/evaluate.py": "8b2d09710d2ce4d525b10e98e20ade78cb5e47fe38f2ab24f92b95c379ac3427",
     "jobbot/rules.py": "5dfd20e7ef990b72426793f80ea4062688f4708597239182cb05bbc2d67a3f2f",
     "jobbot/normalize.py": "eade52fb05fc28571185917d1c5d200a9712d07ff11d0f2cd2451213ff205997",
     "config/rules.json": "764c2d1e8377542367e30f4bf6dd3b3ebedf7cdcaa2b4c0781e6bde602fed1a8",
