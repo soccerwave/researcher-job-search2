@@ -120,12 +120,12 @@ def test_reset_to_first_page_does_not_prove_complete_coverage(monkeypatch):
             page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
             row = 0 if page >= 3 else page
             nxt = f'<a rel="next" href="/jobs/search?page={page + 1}">Next</a>'
-            return Response(url, f"JOB_ROW:{row}\\n{nxt}")
+            return Response(url, f"JOB_ROW:{row}\n{nxt}")
 
     session = ResetSession()
     def parse(html):
         import re
-        m = re.search(r"JOB_ROW:(\\d+)", html)
+        m = re.search(r"JOB_ROW:(\d+)", html)
         return [{"id": m.group(1), "url": "https://euraxess.ec.europa.eu/jobs/" + m.group(1),
                  "location": "Spain", "date": ""}] if m else []
     cards, diag = fetch_spain_pages(
