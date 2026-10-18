@@ -98,6 +98,11 @@ jobs:
           mkdir -p runtime/state runtime/live_output
           python scripts/r2_store.py download-state --dest "$JOBBOT_STATE_FILE"
 
+      # Experimental branch only: preserve valid full JDs across ephemeral runners.
+      - name: Restore EURAXESS validated JD cache
+        run: |
+          python scripts/r2_store.py download-euraxess-cache --dest .cache/euraxess_details.json
+
       - name: Verify Madrid relay
         shell: bash
         run: |
@@ -139,6 +144,10 @@ jobs:
             --out-dir runtime/live_output \
             --report runtime/live_output/job_search_report.xlsx \
             --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Publish EURAXESS validated JD cache
+        run: |
+          python scripts/r2_store.py upload-euraxess-cache --file .cache/euraxess_details.json
 
       - name: Upload diagnostic artifact
         if: ${{ github.event.repository.private }}
