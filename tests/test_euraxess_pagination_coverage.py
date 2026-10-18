@@ -138,3 +138,44 @@ def test_reset_to_first_page_does_not_prove_complete_coverage(monkeypatch):
     assert diag["stop_reason"] == "last_page_reset_unverified"
     assert diag["coverage_complete"] is False
     assert diag["pagination_repeat_detected"] is True
+
+
+def test_restored_valid_detail_avoids_network_and_expired_entry_is_ignored(monkeypatch, tmp_path):
+    """Replay a recurrent job from a R2-restored cache snapshot."""
+    import json
+    from datetime import datetime, timedelta
+    from sources import euraxess
+
+    url = "https://euraxess.ec.europa.eu/jobs/123"
+    card = {
+        "url": url, "id": "123", "title": "Research Project Manager",
+        "company": "Example Institute", "description": "JOB Spain Example Institute",
+        "location": "Spain", "date": "18 October 2026",
+    }
+    detail = "Job Information Country Spain Offer Description Research Project Manager"
+    cache_file = tmp_path / "euraxess_details.json"
+    monkeypatch.setattr(euraxess, "DETAIL_CACHE_PATH", cache_file)
+    euraxess._DETAIL_CACHE.clear()
+    euraxess._FEED_CACHE.clear()
+    diag_feed = {
+        "mode": "generic_feed_local_spain_filter", "coverage_complete": True,
+        "spain_cards": 1, "spain_ratio": 1, "pages_fetched": 1,
+        "parsed_cards": 1, "unique_cards": 1, "page_errors": [],
+        "coverage_warning": "", "attempts": [{"pages_fetched": 1, "parsed_cards": 1}],
+    }
+    monkeypatch.setattr(euraxess, "_get_spain_feed", lambda *args, **kwargs: ([dict(card)], dict(diag_feed), False))
+    class Session:
+        def close(self):
+            pass
+    monkeypatch.setattr(euraxess, "make_retry_session", lambda **kwargs: Session())
+    def no_network(*args, **kwargs):
+        raise AssertionError("Repeated full-JD fetch despite valid cache")
+    monkeypatch.setattr(euraxess, "fetch_url_text", no_network)
+    fresh = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+    cache_file.write_text(json.dumps({url: {"detail": detail, "status": "OK_HTML", "fetched_at": fresh}}))
+    diag = {}
+    jobs = euraxess.collect(diagnostics=diag)
+    assert len(jobs) == 1
+    assert jobs[0]["full_detail"] == detail
+    assert diag["detail_persistent_cache_hits"] == 1
+    assert diag["detail_network_requests"] == 0
