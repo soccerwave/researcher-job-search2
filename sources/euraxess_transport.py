@@ -313,7 +313,12 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
                             break
                     if not recovered:
                         if page >= 2 and original_fp == first_fingerprint:
-                            stop_reason = 'last_page_reset'
+                            # A reset to page zero is not proof that every result
+                            # page was visited. Preserve collected cards but do not
+                            # claim complete discovery without an explicit terminal.
+                            stop_reason = 'last_page_reset_unverified'
+                            pagination_repeat_detected = True
+                            repeated_pages.append(page)
                             break
                         pagination_repeat_detected = True
                         repeated_pages.append(page)
@@ -374,7 +379,7 @@ def fetch_spain_pages(*, base: str, pages: int | None, timeout: tuple[int, int],
     if cutoff_date is None:
         coverage_complete = (
             not page_errors and not pagination_repeat_detected and facet_honored
-            and stop_reason in {'last_page', 'last_page_reset', 'empty_page'}
+            and stop_reason in {'last_page', 'empty_page'}
         )
     else:
         window_reached = stop_reason == 'cutoff_reached' or (oldest_seen is not None and oldest_seen <= cutoff_date)
