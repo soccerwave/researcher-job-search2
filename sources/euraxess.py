@@ -23,6 +23,7 @@ DEFAULT_MAX_CANDIDATES = 80
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
 DETAIL_CACHE_PATH = CACHE_DIR / "euraxess_details.json"
+DETAIL_CACHE_MAX_AGE_DAYS = 7  # Skip outdated or unverifiable cached details
 FEED_CACHE_DIR = CACHE_DIR / "euraxess_feeds"
 
 
@@ -629,6 +630,26 @@ def collect(
     persistent_detail_cache = _load_json(DETAIL_CACHE_PATH, {})
     if not isinstance(persistent_detail_cache, dict):
         persistent_detail_cache = {}
+    # Only reuse verified full job descriptions with a known retrieval date.
+    # A cache hit never substitutes for checking that the listing is still active.
+    now_utc = datetime.utcnow()
+    def cached_detail(url: str) -> tuple[str, str] | None:
+        entry = persistent_detail_cache.get(url)
+        if not isinstance(entry, dict):
+            return None
+        stamp = str(entry.get("fetched_at") or "")
+        try:
+            fetched_at = datetime.fromisoformat(stamp.replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            return None
+        age = (now_utc - fetched_at).total_seconds()
+        if not (0 <= age <= DETAIL_CACHE_MAX_AGE_DAYS * 86400):
+            return None
+        detail = str(entry.get("detail") or "")
+        status = str(entry.get("status") or "")
+        if status not in {"OK_HTML", "OK_PDF", "OK", "CACHE"} or not _valid_euraxess_detail(detail):
+            return None
+        return detail, status
 
     # Never truncate daily full-JD enrichment using a wall-clock cutoff.
     detail_deadline = None
@@ -643,11 +664,8 @@ def collect(
                 if url in _DETAIL_CACHE:
                     detail, status = _DETAIL_CACHE[url]
                     detail_cache_hits += 1
-                elif url in persistent_detail_cache:
-                    entry = persistent_detail_cache.get(url) or {}
-                    if isinstance(entry, dict):
-                        detail = str(entry.get("detail") or "")
-                        status = str(entry.get("status") or "")
+                elif (cached := cached_detail(url)) is not None:
+                    detail, status = cached
                     detail_persistent_cache_hits += 1
                     _DETAIL_CACHE[url] = (detail, status)
                 elif rate_limited:
@@ -687,11 +705,9 @@ def collect(
                         # Save progress and defer the rest to the next run.
                         rate_limited = True
                     elif detail and status in {"OK_HTML", "OK_PDF", "OK", "CACHE"}:
-                        persistent_detail_cache[url] = {"detail": detail, "status": status}
+                        persistent_detail_cache[url] = {"detail": detail, "status": status, "fetched_at": datetime.utcnow().isoformat() + "Z"}
                         _save_json(DETAIL_CACHE_PATH, persistent_detail_cache)
-                    elif status == "DETAIL_MISMATCH":
-                        persistent_detail_cache[url] = {"detail": "", "status": status}
-                        _save_json(DETAIL_CACHE_PATH, persistent_detail_cache)
+                    # Invalid or mismatched responses are never persisted as positive cache entries.
 
                     # fetch_detail_resilient already applies pacing before each request.
                     # Avoid paying the same delay a second time between candidates.
