@@ -160,6 +160,61 @@ def publish_run(state_file: Path, out_dir: Path, report: Path, run_id: str) -> d
     return manifest
 
 
+EURAXESS_DETAIL_CACHE_KEY = "state/cache/euraxess_details.json"
+
+
+def restore_euraxess_cache(dest: Path) -> dict:
+    """Restore optional full-JD cache; no cache is a valid cold start."""
+    s3 = _client()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        s3.download_file(_bucket(), EURAXESS_DETAIL_CACHE_KEY, str(dest))
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return {"restored": False, "reason": "cache_not_yet_published"}
+        raise
+    try:
+        payload = json.loads(dest.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Expected a JSON object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        dest.unlink(missing_ok=True)
+        raise RuntimeError("EURAXESS cache invalid, refusing to load")
+    return {"restored": True, "entries": len(payload)}
+
+
+def publish_euraxess_cache(source: Path) -> dict:
+    """Persist a validated optional cache without affecting canonical state."""
+    if not source.exists():
+        return {"published": False, "reason": "cache_not_present"}
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("EURAXESS cache must be a JSON object")
+    # A failed run must not replace previously published reliable details
+    # with empty or untrusted records.
+    filtered = {}
+    for url, entry in payload.items():
+        if (
+            isinstance(url, str) and url.startswith("https://euraxess.ec.europa.eu/jobs/")
+            and isinstance(entry, dict)
+            and entry.get("status") in {"OK", "OK_HTML", "OK_PDF", "CACHE"}
+            and isinstance(entry.get("detail"), str) and entry["detail"]
+            and isinstance(entry.get("fetched_at"), str) and entry["fetched_at"]
+        ):
+            filtered[url] = entry
+    if not filtered:
+        return {"published": False, "reason": "no_valid_entries"}
+    source.parent.mkdir(parents=True, exist_ok=True)
+    tmp = source.with_suffix(".publish.json")
+    try:
+        tmp.write_text(json.dumps(filtered, ensure_ascii=False), encoding="utf-8")
+        _put_file(_client(), tmp, EURAXESS_DETAIL_CACHE_KEY, "application/json")
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {"published": True, "entries": len(filtered), "key": EURAXESS_DETAIL_CACHE_KEY}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cloudflare R2 transport for production state and run outputs")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -173,9 +228,17 @@ def main() -> None:
     p.add_argument("--out-dir", required=True)
     p.add_argument("--report", required=True)
     p.add_argument("--run-id", required=True)
+    dcache = sub.add_parser("download-euraxess-cache")
+    dcache.add_argument("--dest", required=True)
+    ucache = sub.add_parser("upload-euraxess-cache")
+    ucache.add_argument("--file", required=True)
     args = parser.parse_args()
 
-    if args.command == "download-state":
+    if args.command == "download-euraxess-cache":
+        print(json.dumps(restore_euraxess_cache(Path(args.dest)), indent=2))
+    elif args.command == "upload-euraxess-cache":
+        print(json.dumps(publish_euraxess_cache(Path(args.file)), indent=2))
+    elif args.command == "download-state":
         ok = download_state(Path(args.dest), require=not args.allow_missing)
         print(json.dumps({"downloaded": ok, "state_key": STATE_KEY}, indent=2))
     elif args.command == "bootstrap-state":
