@@ -160,7 +160,7 @@ def publish_run(state_file: Path, out_dir: Path, report: Path, run_id: str) -> d
     return manifest
 
 
-EURAXESS_DETAIL_CACHE_KEY = "state/cache/euraxess_details.json"
+EURAXESS_DETAIL_CACHE_KEY = os.environ.get("R2_EURAXESS_CACHE_KEY") or "state/cache/euraxess_details.json"
 
 
 def restore_euraxess_cache(dest: Path) -> dict:
