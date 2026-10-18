@@ -108,3 +108,74 @@ def test_expired_detail_budget_defers_without_network_call():
         pace_seconds=0, deadline=time.monotonic() - 1,
     )
     assert (detail, status, count) == ("", "DEFERRED_TIME_BUDGET", 0)
+
+
+def test_reset_to_first_page_does_not_prove_complete_coverage(monkeypatch):
+    """A simulated pagination reset is partial, even when initial pages were valid."""
+    monkeypatch.setattr("sources.euraxess_transport.time.sleep", lambda _: None)
+
+    class ResetSession(Session):
+        def _response(self, method, url):
+            self.calls.append((method, url))
+            page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
+            row = 0 if page >= 3 else page
+            nxt = f'<a rel="next" href="/jobs/search?page={page + 1}">Next</a>'
+            return Response(url, f"JOB_ROW:{row}\n{nxt}")
+
+    session = ResetSession()
+    def parse(html):
+        import re
+        m = re.search(r"JOB_ROW:(\d+)", html)
+        return [{"id": m.group(1), "url": "https://euraxess.ec.europa.eu/jobs/" + m.group(1),
+                 "location": "Spain", "date": ""}] if m else []
+    cards, diag = fetch_spain_pages(
+        base="https://euraxess.ec.europa.eu", pages=None, timeout=(1, 1),
+        use_spain_facet=False, parse_search_html=parse,
+        is_spain=lambda c: True, parse_posted_date=lambda _: None,
+        make_session=lambda **kwargs: session,
+    )
+    assert len(cards) == 3
+    assert diag["stop_reason"] == "last_page_reset_unverified"
+    assert diag["coverage_complete"] is False
+    assert diag["pagination_repeat_detected"] is True
+
+
+def test_restored_valid_detail_avoids_network_and_expired_entry_is_ignored(monkeypatch, tmp_path):
+    """Replay a recurrent job from a R2-restored cache snapshot."""
+    import json
+    from datetime import datetime, timedelta
+    from sources import euraxess
+
+    url = "https://euraxess.ec.europa.eu/jobs/123"
+    card = {
+        "url": url, "id": "123", "title": "Research Project Manager",
+        "company": "Example Institute", "description": "JOB Spain Example Institute",
+        "location": "Spain", "date": "18 October 2026",
+    }
+    detail = "Job Information Country Spain Offer Description Research Project Manager"
+    cache_file = tmp_path / "euraxess_details.json"
+    monkeypatch.setattr(euraxess, "DETAIL_CACHE_PATH", cache_file)
+    euraxess._DETAIL_CACHE.clear()
+    euraxess._FEED_CACHE.clear()
+    diag_feed = {
+        "mode": "generic_feed_local_spain_filter", "coverage_complete": True,
+        "spain_cards": 1, "spain_ratio": 1, "pages_fetched": 1,
+        "parsed_cards": 1, "unique_cards": 1, "page_errors": [],
+        "coverage_warning": "", "attempts": [{"pages_fetched": 1, "parsed_cards": 1}],
+    }
+    monkeypatch.setattr(euraxess, "_get_spain_feed", lambda *args, **kwargs: ([dict(card)], dict(diag_feed), False))
+    class Session:
+        def close(self):
+            pass
+    monkeypatch.setattr(euraxess, "make_retry_session", lambda **kwargs: Session())
+    def no_network(*args, **kwargs):
+        raise AssertionError("Repeated full-JD fetch despite valid cache")
+    monkeypatch.setattr(euraxess, "fetch_url_text", no_network)
+    fresh = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"
+    cache_file.write_text(json.dumps({url: {"detail": detail, "status": "OK_HTML", "fetched_at": fresh}}))
+    diag = {}
+    jobs = euraxess.collect(diagnostics=diag)
+    assert len(jobs) == 1
+    assert jobs[0]["full_detail"] == detail
+    assert diag["detail_persistent_cache_hits"] == 1
+    assert diag["detail_network_requests"] == 0
