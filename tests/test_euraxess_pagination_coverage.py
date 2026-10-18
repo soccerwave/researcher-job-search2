@@ -108,3 +108,33 @@ def test_expired_detail_budget_defers_without_network_call():
         pace_seconds=0, deadline=time.monotonic() - 1,
     )
     assert (detail, status, count) == ("", "DEFERRED_TIME_BUDGET", 0)
+
+
+def test_reset_to_first_page_does_not_prove_complete_coverage(monkeypatch):
+    """A simulated pagination reset is partial, even when initial pages were valid."""
+    monkeypatch.setattr("sources.euraxess_transport.time.sleep", lambda _: None)
+
+    class ResetSession(Session):
+        def _response(self, method, url):
+            self.calls.append((method, url))
+            page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
+            row = 0 if page >= 3 else page
+            nxt = f'<a rel="next" href="/jobs/search?page={page + 1}">Next</a>'
+            return Response(url, f"JOB_ROW:{row}\\n{nxt}")
+
+    session = ResetSession()
+    def parse(html):
+        import re
+        m = re.search(r"JOB_ROW:(\\d+)", html)
+        return [{"id": m.group(1), "url": "https://euraxess.ec.europa.eu/jobs/" + m.group(1),
+                 "location": "Spain", "date": ""}] if m else []
+    cards, diag = fetch_spain_pages(
+        base="https://euraxess.ec.europa.eu", pages=None, timeout=(1, 1),
+        use_spain_facet=False, parse_search_html=parse,
+        is_spain=lambda c: True, parse_posted_date=lambda _: None,
+        make_session=lambda **kwargs: session,
+    )
+    assert len(cards) == 3
+    assert diag["stop_reason"] == "last_page_reset_unverified"
+    assert diag["coverage_complete"] is False
+    assert diag["pagination_repeat_detected"] is True
