@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install boto3 beautifulsoup4 requests
+      - run: python -m pip install -r requirements.txt boto3
       - name: Restore cache on independent runner and validate reuse
         run: |
           python scripts/r2_store.py download-euraxess-cache --dest /tmp/euraxess_restored.json
