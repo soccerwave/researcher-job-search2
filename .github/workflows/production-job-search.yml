@@ -84,26 +84,32 @@ jobs:
             fi
           }
 
-          clone_repo "$MADS_REPO" "$AI_JOB_SEARCH_MADS_REPO"
-
-          # Pin the external LinkedIn CLI to the version verified by the international bot.
-          # Its upstream default branch no longer contains linkedin-search/cli/src/cli.ts.
+          # LinkedIn is optional: failures here must not prevent all other sources.
+          # Pin the Mads CLI to the working version used by the international bot.
           MADS_PIN="fd89eac178dc546d41f6c1a3213de88d96112c6d"
-          git -C "$AI_JOB_SEARCH_MADS_REPO" fetch --depth 1 origin "$MADS_PIN"
-          git -C "$AI_JOB_SEARCH_MADS_REPO" checkout --detach "$MADS_PIN"
-          test "$(git -C "$AI_JOB_SEARCH_MADS_REPO" rev-parse HEAD)" = "$MADS_PIN"
-          if [ ! -f "$AI_JOB_SEARCH_MADS_REPO/.agents/skills/linkedin-search/cli/src/cli.ts" ]; then
-            echo "Pinned Mads LinkedIn CLI is missing; refusing incomplete production discovery." >&2
-            exit 2
+          MADS_CLI="$AI_JOB_SEARCH_MADS_REPO/.agents/skills/linkedin-search/cli/src/cli.ts"
+          if clone_repo "$MADS_REPO" "$AI_JOB_SEARCH_MADS_REPO" \
+             && git -C "$AI_JOB_SEARCH_MADS_REPO" fetch --depth 1 origin "$MADS_PIN" \
+             && git -C "$AI_JOB_SEARCH_MADS_REPO" checkout --detach "$MADS_PIN" \
+             && [ "$(git -C "$AI_JOB_SEARCH_MADS_REPO" rev-parse HEAD)" = "$MADS_PIN" ] \
+             && [ -f "$MADS_CLI" ]; then
+            if [ -f "$AI_JOB_SEARCH_MADS_REPO/package.json" ]; then
+              if ! (cd "$AI_JOB_SEARCH_MADS_REPO" && (bun install --frozen-lockfile || bun install)); then
+                echo "::warning::LinkedIn transport dependency setup failed; LinkedIn will report ERROR without blocking other sources."
+                rm -rf "$AI_JOB_SEARCH_MADS_REPO"
+              fi
+            fi
+          else
+            echo "::warning::LinkedIn transport unavailable or pinned CLI invalid; LinkedIn will report ERROR without blocking other sources."
+            # Never leave an unpinned/partial CLI directory that could be used accidentally.
+            rm -rf "$AI_JOB_SEARCH_MADS_REPO"
           fi
 
+          # InfoJobs setup retains its existing independent failure contract.
           clone_repo "$INFOJOBS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"
-
-          for repo in "$AI_JOB_SEARCH_MADS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"; do
-            if [ -f "$repo/package.json" ]; then
-              (cd "$repo" && (bun install --frozen-lockfile || bun install))
-            fi
-          done
+          if [ -f "$AI_JOB_SEARCH_SPAIN_REPO/package.json" ]; then
+            (cd "$AI_JOB_SEARCH_SPAIN_REPO" && (bun install --frozen-lockfile || bun install))
+          fi
 
       - name: Restore validated production state from R2
         run: |
