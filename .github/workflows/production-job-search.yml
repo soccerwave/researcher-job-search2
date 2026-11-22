@@ -85,6 +85,18 @@ jobs:
           }
 
           clone_repo "$MADS_REPO" "$AI_JOB_SEARCH_MADS_REPO"
+
+          # Pin the external LinkedIn CLI to the version verified by the international bot.
+          # Its upstream default branch no longer contains linkedin-search/cli/src/cli.ts.
+          MADS_PIN="fd89eac178dc546d41f6c1a3213de88d96112c6d"
+          git -C "$AI_JOB_SEARCH_MADS_REPO" fetch --depth 1 origin "$MADS_PIN"
+          git -C "$AI_JOB_SEARCH_MADS_REPO" checkout --detach "$MADS_PIN"
+          test "$(git -C "$AI_JOB_SEARCH_MADS_REPO" rev-parse HEAD)" = "$MADS_PIN"
+          if [ ! -f "$AI_JOB_SEARCH_MADS_REPO/.agents/skills/linkedin-search/cli/src/cli.ts" ]; then
+            echo "Pinned Mads LinkedIn CLI is missing; refusing incomplete production discovery." >&2
+            exit 2
+          fi
+
           clone_repo "$INFOJOBS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"
 
           for repo in "$AI_JOB_SEARCH_MADS_REPO" "$AI_JOB_SEARCH_SPAIN_REPO"; do
